@@ -521,11 +521,18 @@ mod tests {
         let marker = include_str!("../../../packaging/windows/tonepush-installer.txt");
         assert_eq!(marker.trim(), format!("{}-installer-v1", CONFIG.slug));
         let script = include_str!("../../../packaging/windows/tonepush.iss");
-        assert!(script.starts_with('\u{feff}'), "Inno Setup needs a UTF-8 BOM");
+        assert!(
+            script.starts_with('\u{feff}'),
+            "Inno Setup needs a UTF-8 BOM"
+        );
         for file in ["tonepush-installer.txt", "tonepush-gui.exe", "tonepush.exe"] {
             assert!(script.contains(file), "tonepush.iss must install {file}");
         }
-        assert!(script.contains("OutputBaseFilename=tonepush-v{#Version}-{#Arch}-pc-windows-msvc-setup"));
+        assert!(script
+            .contains("OutputBaseFilename=tonepush-v{#Version}-{#Arch}-pc-windows-msvc-setup"));
+        // Setup closes a running TonePush on its own; Uninstall has to be
+        // told, or it removes what it can and leaves the rest behind.
+        assert!(script.contains("function InitializeUninstall: Boolean;"));
         let release = include_str!("../../../.github/workflows/release.yml");
         assert!(release.contains("packaging\\windows\\tonepush.iss"));
         assert!(release.contains("dist/*-setup.exe"));

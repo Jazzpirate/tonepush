@@ -39,7 +39,9 @@ Almost every PC wants the first installer; the second is for Windows on ARM
 
 The installer needs no administrator rights. It puts TonePush in the Start
 menu, with a desktop shortcut if you ask for one, and installs the `tonepush`
-command-line tool beside it. Remove it from Settings, Apps.
+command-line tool beside it. Remove it from Settings, Apps. If TonePush is
+running then, the uninstaller waits: quit it and choose Retry, or let the
+uninstaller close it.
 
 To run TonePush without installing, unpack an archive and run
 `tonepush-gui.exe`:
