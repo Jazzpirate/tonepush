@@ -28,4 +28,5 @@ success = system(
   "-pdbtype", "none",
   "-o", package
 )
-abort "MSI build failed" unless success
+abort "wix was not found; install WiX 5 (see above)" if success.nil?
+abort "MSI build failed (#{$?})" unless success

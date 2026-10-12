@@ -60,6 +60,7 @@ jobs:
           dotnet tool install --global wix --version 5.0.2
           wix extension add --global WixToolset.Util.wixext/5.0.2
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "$env:USERPROFILE\.dotnet\tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
       - name: Install, update and remove
         shell: pwsh
         run: pwsh packaging/windows/test-installer.ps1
