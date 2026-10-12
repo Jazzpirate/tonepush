@@ -79,9 +79,9 @@
     <StandardDirectory Id="ProgramMenuFolder" />
     <StandardDirectory Id="DesktopFolder" />
     <!-- Into the copy being replaced; the updater passes INSTALLFOLDER too. -->
-    <SetDirectory Id="INSTALLFOLDER" Value="[TONEPUSHFOLDER]" Sequence="both"
+    <SetDirectory Id="INSTALLFOLDER" Action="InstallIntoEarlierMsiFolder" Value="[TONEPUSHFOLDER]" Sequence="both"
       Condition="TONEPUSHFOLDER AND NOT INNOFOLDER" />
-    <SetDirectory Id="INSTALLFOLDER" Value="[INNOFOLDER]" Sequence="both"
+    <SetDirectory Id="INSTALLFOLDER" Action="InstallIntoInnoFolder" Value="[INNOFOLDER]" Sequence="both"
       Condition="INNOFOLDER" />
 
     <!-- Per-user components use an HKCU value as their key path. -->
