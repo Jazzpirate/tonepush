@@ -64,6 +64,22 @@ jobs:
       - name: Install, update and remove
         shell: pwsh
         run: pwsh packaging/windows/test-installer.ps1
+      # The release's own path to the package: native-packages checks the
+      # input's executables are x64 PE files, so system ones stand in.
+      - name: Package as the release does
+        shell: pwsh
+        run: |
+          gem install native-packages --version 0.9.0 --no-document
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $payload = "dist\windows-input-x86_64-pc-windows-msvc"
+          New-Item -ItemType Directory -Force $payload | Out-Null
+          Copy-Item "$env:SystemRoot\System32\PING.EXE" "$payload\tonepush-gui.exe"
+          Copy-Item "$env:SystemRoot\System32\PING.EXE" "$payload\tonepush.exe"
+          Copy-Item README.md, LICENSE, packaging\windows\tonepush-installer.txt $payload
+          native-packages build --version 0.0.1 --target windows-amd64 `
+            --defer-recipes --output "$env:RUNNER_TEMP\windows-packages"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem "$env:RUNNER_TEMP\windows-packages\packages\windows-amd64\msi\tonepush-v0.0.1-x86_64-pc-windows-msvc.msi"
 
   # `cargo test --workspace` compiles the extension, which says nothing about
   # whether the *gem* is still shippable: the package carries only the files the

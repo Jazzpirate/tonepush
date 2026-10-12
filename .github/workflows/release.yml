@@ -123,13 +123,44 @@ jobs:
             "/DOutputDir=$PWD\dist" packaging\windows\tonepush.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # The Windows Installer package, which replaces the setup program
+      # above once every install has updated through one release carrying
+      # both (0.9.1).
+      - uses: ruby/setup-ruby@v1
+        if: runner.os == 'Windows'
+        with:
+          ruby-version: '4.0'
+      - name: Windows Installer package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          gem install native-packages --version 0.9.0 --no-document
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add --global WixToolset.Util.wixext/5.0.2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:Path += ";$env:USERPROFILE\.dotnet\tools"
+          $target = "${{ matrix.target }}"
+          $payload = "dist\windows-input-$target"
+          New-Item -ItemType Directory -Force $payload | Out-Null
+          Copy-Item "target\$target\release\tonepush-gui.exe", "target\$target\release\tonepush.exe", `
+            README.md, LICENSE, packaging\windows\tonepush-installer.txt $payload
+          $packageTarget = if ($target.StartsWith("aarch64")) { "windows-arm64" } else { "windows-amd64" }
+          $version = $env:GITHUB_REF_NAME.TrimStart("v")
+          native-packages build --version $version --target $packageTarget `
+            --defer-recipes --output "$env:RUNNER_TEMP\windows-packages"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item "$env:RUNNER_TEMP\windows-packages\packages\$packageTarget\msi\*.msi" dist\
+          Remove-Item -Recurse $payload
+
       - name: Attest release packages
-        uses: crmne/native-packages/.github/actions/attest@999768410cf53cdc68c8679c09cb14de1a6bca7b # v0.8.1
+        uses: crmne/native-packages/.github/actions/attest@83bd46c245488c2b8f1b9d74569e16cf6a449e8f # v0.9.0
         with:
           subject-path: |
             dist/*.tar.gz
             dist/*.zip
             dist/*-setup.exe
+            dist/*.msi
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}
@@ -137,6 +168,7 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
             dist/*-setup.exe
+            dist/*.msi
           if-no-files-found: error
 
   macos:
@@ -183,7 +215,7 @@ jobs:
         with:
           ruby-version: '4.0'
       - name: Install native packaging
-        run: gem install native-packages --version 0.8.1 --no-document
+        run: gem install native-packages --version 0.9.0 --no-document
 
       - name: App bundle
         run: |
@@ -210,7 +242,7 @@ jobs:
           tar czf "dist/$name.tar.gz" -C "$RUNNER_TEMP/signed-portable" "$name"
 
       - name: Attest macOS packages
-        uses: crmne/native-packages/.github/actions/attest@999768410cf53cdc68c8679c09cb14de1a6bca7b # v0.8.1
+        uses: crmne/native-packages/.github/actions/attest@83bd46c245488c2b8f1b9d74569e16cf6a449e8f # v0.9.0
         with:
           subject-path: |
             dist/*.dmg
@@ -432,7 +464,7 @@ jobs:
         env:
           TONEPUSH_UPDATE_SIGNING_KEY: ${{ secrets.TONEPUSH_UPDATE_SIGNING_KEY }}
         run: |
-          gem install native-packages --version 0.8.1 --no-document
+          gem install native-packages --version 0.9.0 --no-document
           native-packages sign-checksums dist/checksums.txt \
             --public-key key/assets/update-public-key.hex \
             --key-env TONEPUSH_UPDATE_SIGNING_KEY

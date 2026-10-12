@@ -1,8 +1,8 @@
-# Shared CLI: gem install native-packages --version 0.8.1
+# Shared CLI: gem install native-packages --version 0.9.0
 ---
 schema: 1
 tool:
-  version: 0.8.1
+  version: 0.9.0
   nfpm: 2.47.0
 nfpm:
   name: tonepush
@@ -71,6 +71,28 @@ targets:
     native:
       command: [ruby, packaging/macos/dmg.rb, '@PAYLOAD@', '@PACKAGE@']
       output: 'tonepush-@TAG@-macos-universal.dmg'
+  # Built by the release workflow's Windows jobs from the binaries, README,
+  # LICENSE and installer marker they gather; WiX 5 must be installed.
+  windows-amd64:
+    platform: windows
+    arch: amd64
+    formats: [msi]
+    input:
+      kind: directory
+      local: dist/windows-input-x86_64-pc-windows-msvc
+    native:
+      command: [ruby, packaging/windows/msi.rb, '@PAYLOAD@', '@PACKAGE@', '@VERSION@']
+      output: 'tonepush-@TAG@-x86_64-pc-windows-msvc.msi'
+  windows-arm64:
+    platform: windows
+    arch: arm64
+    formats: [msi]
+    input:
+      kind: directory
+      local: dist/windows-input-aarch64-pc-windows-msvc
+    native:
+      command: [ruby, packaging/windows/msi.rb, '@PAYLOAD@', '@PACKAGE@', '@VERSION@']
+      output: 'tonepush-@TAG@-aarch64-pc-windows-msvc.msi'
   linux-amd64:
     platform: linux
     arch: amd64

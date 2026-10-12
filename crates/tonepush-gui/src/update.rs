@@ -562,6 +562,12 @@ mod tests {
         let inno = "{E7F9B874-71BE-4DE7-8323-BB09AFBD702F}";
         assert!(script.contains(&format!("AppId={{{inno}")));
         assert!(package.contains(&format!("Uninstall\\{inno}_is1")));
+        let packaging = include_str!("../../../native-packages.yaml");
+        for target in ["x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"] {
+            assert!(packaging.contains(&format!("output: 'tonepush-@TAG@-{target}.msi'")));
+        }
+        let release = include_str!("../../../.github/workflows/release.yml");
+        assert!(release.contains("dist/*.msi"));
     }
 
     /// The marker the release workflow puts next to the portable editor, in
