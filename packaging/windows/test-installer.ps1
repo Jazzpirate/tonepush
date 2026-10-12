@@ -57,6 +57,7 @@ function Msi($version, $arch = "x64") {
 
 function Msiexec($arguments) {
   $log = Join-Path $root "msiexec-$([guid]::NewGuid()).log"
+  $script:lastLog = $log
   $process = Start-Process msiexec.exe -ArgumentList "$arguments /l*v `"$log`"" -Wait -PassThru
   if ($process.ExitCode -notin 0, 3010) {
     Get-Content $log -Tail 60 -ErrorAction SilentlyContinue | Write-Host
@@ -114,6 +115,7 @@ $running = Start-Process (Join-Path $fake "tonepush.exe") -ArgumentList "-n 600 
 try {
   $code = Msiexec "/x `"$v2`" /qn /norestart"
   Check ($code -ne 0 -and $code -ne 3010) "uninstalling while TonePush runs is refused ($code)"
+  Check (Select-String -Quiet -Encoding unicode "TonePush is running" $script:lastLog) "by the check for a running TonePush"
   Check ((Program $defaultFolder) -eq "tonepush-gui.exe msi-0.9.2-x64") "nothing was removed"
 } finally {
   Stop-Process -Id $running.Id -Force
