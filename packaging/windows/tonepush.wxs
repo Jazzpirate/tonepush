@@ -86,7 +86,7 @@
 
     <!-- Per-user components use an HKCU value as their key path. -->
     <ComponentGroup Id="Program" Directory="INSTALLFOLDER">
-      <Component Id="Programs">
+      <Component Id="Programs" Guid="{A9FD90EA-2EBA-41EC-85A5-5BA7391C9E22}">
         <File Id="EditorExe" Name="tonepush-gui.exe" Source="$(SourceDir)\tonepush-gui.exe" KeyPath="no" />
         <File Id="CliExe" Name="tonepush.exe" Source="$(SourceDir)\tonepush.exe" KeyPath="no" />
         <!-- The updater's sign that this copy came from an installer. -->
@@ -96,7 +96,7 @@
           Name="InstallFolder" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
         <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
       </Component>
-      <Component Id="Documents">
+      <Component Id="Documents" Guid="{8F5B891F-BD9B-49F4-A999-F1C784A1AC86}">
         <File Id="Readme" Name="README.md" Source="$(SourceDir)\README.md" KeyPath="no" />
         <File Id="License" Name="LICENSE" Source="$(SourceDir)\LICENSE" KeyPath="no" />
         <RegistryValue Root="HKCU" Key="Software\TonePush"
@@ -106,7 +106,7 @@
         Taking over an Inno Setup install: its uninstaller and Settings > Apps
         entry go, and never run, because they would delete these files.
       -->
-      <Component Id="InnoTakeover" Condition="INNOFOLDER">
+      <Component Id="InnoTakeover" Guid="{8369C409-6B3A-4EAF-BC1A-117558D4EF0C}" Condition="INNOFOLDER">
         <RemoveFile Id="InnoUninstaller" Name="unins000.*" On="install" />
         <RemoveRegistryKey Root="HKCU" Action="removeOnInstall"
           Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\{E7F9B874-71BE-4DE7-8323-BB09AFBD702F}_is1" />
@@ -116,14 +116,14 @@
     </ComponentGroup>
 
     <ComponentGroup Id="Shortcuts">
-      <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="{F82B2B6C-2787-4A6B-8F6A-BBE5530CE7C2}" Directory="ProgramMenuFolder">
         <Shortcut Id="EditorShortcut" Name="TonePush"
           Description="Edit your pedal's presets and keep your tones"
           Target="[#EditorExe]" WorkingDirectory="INSTALLFOLDER" />
         <RegistryValue Root="HKCU" Key="Software\TonePush"
           Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
-      <Component Id="DesktopShortcut" Directory="DesktopFolder" Condition="DESKTOPSHORTCUT">
+      <Component Id="DesktopShortcut" Guid="{9F32344E-D705-40FD-B3D1-E76871F9E828}" Directory="DesktopFolder" Condition="DESKTOPSHORTCUT">
         <Shortcut Id="DesktopEditorShortcut" Name="TonePush"
           Target="[#EditorExe]" WorkingDirectory="INSTALLFOLDER" />
         <RegistryValue Root="HKCU" Key="Software\TonePush"

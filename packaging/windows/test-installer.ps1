@@ -50,7 +50,7 @@ function Inno($version, $arguments) {
 
 function Msi($version, $arch = "x64") {
   $package = Join-Path $root "tonepush-$version-$arch.msi"
-  ruby packaging\windows\msi.rb (Payload "msi-$version-$arch") $package $version $arch
+  ruby packaging\windows\msi.rb (Payload "msi-$version-$arch") $package $version $arch | Out-Host
   if ($LASTEXITCODE -ne 0) { throw "MSI build failed" }
   $package
 }
