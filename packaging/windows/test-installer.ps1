@@ -68,9 +68,15 @@ function Program($folder) {
   Get-Content -Raw (Join-Path $folder "tonepush-gui.exe")
 }
 
+# What Settings > Apps lists for TonePush: the MSI installs Windows Installer
+# knows by TonePush's UpgradeCode, and the Inno Setup entry.
 function Entries {
-  Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" |
-    Get-ItemProperty | Where-Object { $_.DisplayName -like "TonePush*" }
+  $installer = New-Object -ComObject WindowsInstaller.Installer
+  $products = $installer.GetType().InvokeMember("RelatedProducts", "GetProperty", $null, $installer,
+    @("{B4344637-0747-4C62-BB78-1BD669BAE353}"))
+  $count = @($products).Count
+  if (Test-Path $innoKey) { $count += 1 }
+  $count
 }
 
 # 1. The Inno Setup installer, with its desktop shortcut.
@@ -88,7 +94,7 @@ Check (Test-Path (Join-Path $defaultFolder "tonepush-installer.txt")) "the insta
 Check (-not (Test-Path (Join-Path $defaultFolder "unins000.exe"))) "Inno's uninstaller is gone"
 Check (-not (Test-Path (Join-Path $defaultFolder "unins000.dat"))) "Inno's uninstall log is gone"
 Check (-not (Test-Path $innoKey)) "Inno's Settings > Apps entry is gone"
-Check (@(Entries).Count -eq 1) "Settings > Apps lists TonePush once"
+Check ((Entries) -eq 1) "Settings > Apps lists TonePush once"
 Check (Test-Path $startMenu) "the Start menu shortcut is there"
 Check (Test-Path $desktop) "the desktop shortcut is kept"
 
@@ -97,7 +103,7 @@ $v2 = Msi "0.9.2"
 $code = Msiexec "/i `"$v2`" /qn /norestart"
 Check ($code -in 0, 3010) "the next MSI updates in place ($code)"
 Check ((Program $defaultFolder) -eq "tonepush-gui.exe msi-0.9.2-x64") "the editor is the new one"
-Check (@(Entries).Count -eq 1) "Settings > Apps still lists TonePush once"
+Check ((Entries) -eq 1) "Settings > Apps still lists TonePush once"
 Check (Test-Path $desktop) "the desktop shortcut survives the update"
 
 # 4. Uninstalling while the tonepush command runs is refused, untouched.
@@ -119,7 +125,7 @@ Check ($code -in 0, 3010) "uninstalling removes TonePush ($code)"
 Check (-not (Test-Path $defaultFolder)) "the program folder is gone"
 Check (-not (Test-Path $startMenu)) "the Start menu shortcut is gone"
 Check (-not (Test-Path $desktop)) "the desktop shortcut is gone"
-Check (@(Entries).Count -eq 0) "Settings > Apps no longer lists TonePush"
+Check ((Entries) -eq 0) "Settings > Apps no longer lists TonePush"
 
 # 6. An Inno install in a folder of its own, taken over by an MSI run by hand.
 $custom = Join-Path $env:LOCALAPPDATA "TonePush Elsewhere"
