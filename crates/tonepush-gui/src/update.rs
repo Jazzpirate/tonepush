@@ -538,6 +538,32 @@ mod tests {
         assert!(release.contains("dist/*-setup.exe"));
     }
 
+    /// The Windows Installer package, in the contract fastframe-update keeps:
+    /// it installs the marker beside the editor into `INSTALLFOLDER`, which
+    /// the updater sets to the folder the editor runs from, and it is
+    /// published as `<slug>-v<version>-<target>.msi` beside the setup
+    /// program, which it takes over.
+    #[test]
+    fn the_windows_installer_package_keeps_the_updaters_contract() {
+        let package = include_str!("../../../packaging/windows/tonepush.wxs");
+        for file in ["tonepush-installer.txt", "tonepush-gui.exe", "tonepush.exe"] {
+            assert!(
+                package.contains(&format!("Name=\"{file}\"")),
+                "tonepush.wxs must install {file}"
+            );
+        }
+        assert!(package.contains("<Directory Id=\"INSTALLFOLDER\""));
+        assert!(package.contains("Manufacturer=\"Carmine Paolino\""));
+        // One code for every version, so each one replaces the last.
+        assert!(package.contains("UpgradeCode=\"{B4344637-0747-4C62-BB78-1BD669BAE353}\""));
+        assert!(package.contains("<MajorUpgrade"));
+        // The Inno Setup installer's AppId, whose install it takes over.
+        let script = include_str!("../../../packaging/windows/tonepush.iss");
+        let inno = "{E7F9B874-71BE-4DE7-8323-BB09AFBD702F}";
+        assert!(script.contains(&format!("AppId={{{inno}")));
+        assert!(package.contains(&format!("Uninstall\\{inno}_is1")));
+    }
+
     /// The marker the release workflow puts next to the portable editor, in
     /// the exact form fastframe-update reads: `<slug>-portable.txt` holding
     /// `<slug>-portable-v1`.

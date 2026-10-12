@@ -43,6 +43,27 @@ jobs:
         if: runner.os == 'Windows'
         run: mbx test --workspace --exclude hx-ruby
 
+  # The Windows packages, installed for real with stand-in program files: the
+  # Inno Setup installer, the MSI taking it over, an update, and uninstalling
+  # with TonePush running and without. Releases build both from these files.
+  windows-installer:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '4.0'
+      - name: WiX
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add --global WixToolset.Util.wixext/5.0.2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install, update and remove
+        shell: pwsh
+        run: pwsh packaging/windows/test-installer.ps1
+
   # `cargo test --workspace` compiles the extension, which says nothing about
   # whether the *gem* is still shippable: the package carries only the files the
   # gemspec lists, and its Cargo.toml has to resolve with no workspace around

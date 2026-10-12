@@ -1,0 +1,156 @@
+<!--
+  TonePush as a per-user Windows Installer package (WiX Toolset 5).
+
+  - Installs the editor (tonepush-gui.exe) and the command line (tonepush.exe)
+    to %LOCALAPPDATA%\Programs\TonePush, per user, so no UAC prompt.
+  - A Start menu shortcut opens the editor. A desktop shortcut is kept when
+    one exists, as the Inno Setup installer offered it.
+  - tonepush-installer.txt tells TonePush's updater that this copy came from
+    an installer, so an update downloads and runs the next package with
+    INSTALLFOLDER set to the folder the editor runs from.
+  - Takes over a copy installed by the Inno Setup installer of 0.9.x: it
+    installs into that folder, then removes Inno's uninstaller and its
+    Settings > Apps entry. Settings and the library live elsewhere and stay.
+  - Refuses to install or uninstall while TonePush or the tonepush command
+    runs, so it never leaves half a program behind.
+
+  Build (see packaging/windows/msi.rb):
+    wix build tonepush.wxs -arch x64 -ext WixToolset.Util.wixext -d Version=1.2.3
+      -d SourceDir=... -pdbtype none -o tonepush.msi
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+  xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package
+    Name="TonePush"
+    Manufacturer="Carmine Paolino"
+    Version="$(Version)"
+    UpgradeCode="{B4344637-0747-4C62-BB78-1BD669BAE353}"
+    Scope="perUser"
+    Compressed="yes"
+    Language="1033">
+    <!-- Never change the UpgradeCode: it ties every version together. -->
+    <SummaryInformation Description="TonePush" Manufacturer="Carmine Paolino" />
+    <MajorUpgrade
+      Schedule="afterInstallInitialize"
+      AllowSameVersionUpgrades="yes"
+      DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="TonePushIcon" SourceFile="$(sys.SOURCEFILEDIR)tonepush.ico" />
+    <Property Id="ARPPRODUCTICON" Value="TonePushIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://tonepush.rocks" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/crmne/tonepush/issues" />
+    <Property Id="ARPURLUPDATEINFO" Value="https://github.com/crmne/tonepush/releases" />
+    <Property Id="ARPCOMMENTS" Value="© 2026 Carmine Paolino. MIT License." />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+    <!--
+      Replace every file, whatever its dates. Neither executable carries a
+      version resource, and Windows Installer keeps an unversioned file whose
+      modified date differs from its created date, as an Inno Setup install
+      leaves them: without this, taking over that install would keep the old
+      editor.
+    -->
+    <Property Id="REINSTALLMODE" Value="amus" />
+
+    <!-- An earlier MSI install, wherever it went. -->
+    <Property Id="TONEPUSHFOLDER">
+      <RegistrySearch Id="PreviousFolder" Root="HKCU" Key="Software\TonePush"
+        Name="InstallFolder" Type="directory" />
+    </Property>
+    <!-- A copy installed by the Inno Setup installer (its AppId). -->
+    <Property Id="INNOFOLDER">
+      <RegistrySearch Id="InnoAppPath" Root="HKCU"
+        Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\{E7F9B874-71BE-4DE7-8323-BB09AFBD702F}_is1"
+        Name="Inno Setup: App Path" Type="directory" />
+    </Property>
+    <!-- The desktop shortcut that installer may have made. -->
+    <Property Id="DESKTOPSHORTCUT">
+      <DirectorySearch Id="Desktop" Path="[DesktopFolder]" Depth="0">
+        <FileSearch Id="DesktopShortcut" Name="TonePush.lnk" />
+      </DirectorySearch>
+    </Property>
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="TonePush" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder" />
+    <!-- Into the copy being replaced; the updater passes INSTALLFOLDER too. -->
+    <SetDirectory Id="INSTALLFOLDER" Value="[TONEPUSHFOLDER]" Sequence="both"
+      Condition="TONEPUSHFOLDER AND NOT INNOFOLDER" />
+    <SetDirectory Id="INSTALLFOLDER" Value="[INNOFOLDER]" Sequence="both"
+      Condition="INNOFOLDER" />
+
+    <!-- Per-user components use an HKCU value as their key path. -->
+    <ComponentGroup Id="Program" Directory="INSTALLFOLDER">
+      <Component Id="Programs">
+        <File Id="EditorExe" Name="tonepush-gui.exe" Source="$(SourceDir)\tonepush-gui.exe" KeyPath="no" />
+        <File Id="CliExe" Name="tonepush.exe" Source="$(SourceDir)\tonepush.exe" KeyPath="no" />
+        <!-- The updater's sign that this copy came from an installer. -->
+        <File Id="InstallerMarker" Name="tonepush-installer.txt"
+          Source="$(SourceDir)\tonepush-installer.txt" KeyPath="no" />
+        <RegistryValue Root="HKCU" Key="Software\TonePush"
+          Name="InstallFolder" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+        <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+      </Component>
+      <Component Id="Documents">
+        <File Id="Readme" Name="README.md" Source="$(SourceDir)\README.md" KeyPath="no" />
+        <File Id="License" Name="LICENSE" Source="$(SourceDir)\LICENSE" KeyPath="no" />
+        <RegistryValue Root="HKCU" Key="Software\TonePush"
+          Name="Documents" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+      <!--
+        Taking over an Inno Setup install: its uninstaller and Settings > Apps
+        entry go, and never run, because they would delete these files.
+      -->
+      <Component Id="InnoTakeover" Condition="INNOFOLDER">
+        <RemoveFile Id="InnoUninstaller" Name="unins000.*" On="install" />
+        <RemoveRegistryKey Root="HKCU" Action="removeOnInstall"
+          Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\{E7F9B874-71BE-4DE7-8323-BB09AFBD702F}_is1" />
+        <RegistryValue Root="HKCU" Key="Software\TonePush"
+          Name="TookOverInno" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="Shortcuts">
+      <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder">
+        <Shortcut Id="EditorShortcut" Name="TonePush"
+          Description="Edit your pedal's presets and keep your tones"
+          Target="[#EditorExe]" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" Key="Software\TonePush"
+          Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+      <Component Id="DesktopShortcut" Directory="DesktopFolder" Condition="DESKTOPSHORTCUT">
+        <Shortcut Id="DesktopEditorShortcut" Name="TonePush"
+          Target="[#EditorExe]" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" Key="Software\TonePush"
+          Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Main" Title="TonePush" AllowAbsent="no">
+      <ComponentGroupRef Id="Program" />
+      <ComponentGroupRef Id="Shortcuts" />
+    </Feature>
+
+    <!--
+      Refuse to go on while TonePush runs, before anything is removed. Only
+      detected, never closed: a portable copy has the same names, and closing
+      the editor or the command mid-transfer cuts off a write to the pedal.
+      The updater's own process is helper.exe and has quit TonePush first.
+    -->
+    <util:CloseApplication Id="EditorRunning" Target="tonepush-gui.exe"
+      Property="TONEPUSHRUNNING" RebootPrompt="no" />
+    <util:CloseApplication Id="CliRunning" Target="tonepush.exe"
+      Property="TONEPUSHRUNNING" RebootPrompt="no" />
+    <CustomAction Id="RefuseWhileRunning"
+      Error="TonePush is running. Quit TonePush and any tonepush command, then try again." />
+    <InstallExecuteSequence>
+      <Custom Action="RefuseWhileRunning" After="Wix4CloseApplications_$(sys.BUILDARCHSHORT)"
+        Condition="TONEPUSHRUNNING" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>
