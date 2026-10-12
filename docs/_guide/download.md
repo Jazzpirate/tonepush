@@ -34,14 +34,15 @@ brew install crmne/tap/tonepush          # the CLI
 Almost every PC wants the first installer; the second is for Windows on ARM
 (Surface and other Snapdragon machines):
 
-- [tonepush-v{{ v }}-x86_64-pc-windows-msvc-setup.exe]({{ base }}/tonepush-v{{ v }}-x86_64-pc-windows-msvc-setup.exe)
-- [tonepush-v{{ v }}-aarch64-pc-windows-msvc-setup.exe]({{ base }}/tonepush-v{{ v }}-aarch64-pc-windows-msvc-setup.exe)
+- [tonepush-v{{ v }}-x86_64-pc-windows-msvc.msi]({{ base }}/tonepush-v{{ v }}-x86_64-pc-windows-msvc.msi)
+- [tonepush-v{{ v }}-aarch64-pc-windows-msvc.msi]({{ base }}/tonepush-v{{ v }}-aarch64-pc-windows-msvc.msi)
 
 The installer needs no administrator rights. It puts TonePush in the Start
-menu, with a desktop shortcut if you ask for one, and installs the `tonepush`
-command-line tool beside it. Remove it from Settings, Apps. If TonePush is
-running then, the uninstaller waits: quit it and choose Retry, or let the
-uninstaller close it.
+menu and installs the `tonepush` command-line tool beside it. A copy
+installed with an earlier TonePush setup program is updated in place, keeping
+its folder, its desktop shortcut and your settings. Remove TonePush from
+Settings, Apps. Installing or removing it waits until TonePush and any
+`tonepush` command have quit: quit them and try again.
 
 To run TonePush without installing, unpack an archive and run
 `tonepush-gui.exe`:
@@ -114,8 +115,8 @@ example **0.8.0 is out**). Click it, or the settings button beside it, for the
 offer.
 
 - **The Windows installer:** click **Update to 0.8.0**. TonePush downloads
-  the next installer, checks it against its release signature, runs it and
-  opens the new version. The command-line tool updates with it.
+  the next installer, checks it against its release signature, installs it
+  and opens the new version. The command-line tool updates with it.
 - **The macOS app from the DMG, and the Windows and Linux archives:** click
   **Update to 0.8.0**. TonePush downloads the new version, checks it against
   its release signature, and offers **Restart to update**. It closes, lets the
