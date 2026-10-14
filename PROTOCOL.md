@@ -127,6 +127,20 @@ received bytes while nobody was waiting on it, moved this from failing on the
 third preset-document write to comfortably past ten. Measured on an HX Stomp
 running 3.80.
 
+**The events channel needs ACK frames, not keep-alives. [confirmed]** The device
+sends at most 4 KB of notifications that have not been acknowledged by an ACK frame
+(type 0x08), then stops sending on channel `0x1002` and stays silent, across new
+sessions, until its power is pulled. A keep-alive carries the same acknowledgement
+in its header, but the device does not count it. HX Edit sends an ACK for almost
+every notification: in `captures/mac-library-capture.log` the device sends 3453 data
+frames (72 KB) on the events channel and HX Edit answers with 3334 ACKs, each within
+about 50 ms, `ack = 0x1000 + bytes received`. `poll_notifications` now does the same
+whenever the channel is owed bytes, and `keepalive` no longer marks the channel
+acknowledged. Measured on an HX Effects at 3.80, after a power cycle, pedal
+untouched, three minutes of `watch`: 195 notifications and then silence before
+(195 ticks of 21 bytes is 4095 bytes), 1095 and still flowing after. The device
+tests do not cover this; `fake::Pedal::events_window` models it.
+
 Two things that look like fixes and are not:
 
 - **Acknowledging the channel a reply just arrived on, before returning.** The
