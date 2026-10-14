@@ -13,6 +13,8 @@
     Settings > Apps entry. Settings and the library live elsewhere and stay.
   - Refuses to install or uninstall while TonePush or the tonepush command
     runs, so it never leaves half a program behind.
+  - Uninstalling removes the updater's .tonepush-update-* working folders;
+    an upgrade keeps them.
 
   Build (see packaging/windows/msi.rb):
     wix build tonepush.wxs -arch x64 -ext WixToolset.Util.wixext -d Version=1.2.3
@@ -151,6 +153,21 @@
     <InstallExecuteSequence>
       <Custom Action="RefuseWhileRunning" After="Wix4CloseApplications_$(sys.BUILDARCHSHORT)"
         Condition="TONEPUSHRUNNING" />
+    </InstallExecuteSequence>
+
+    <!--
+      The updater's working folders (fastframe-update) have random names, which
+      RemoveFolder cannot match. Remove them on uninstall only: an upgrade runs
+      from one of them.
+    -->
+    <SetProperty Id="RemoveUpdateFolders" Sequence="execute" Before="RemoveUpdateFolders"
+      Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE"
+      Value="&quot;[System64Folder]cmd.exe&quot; /d /c for /d %d in (&quot;[INSTALLFOLDER].tonepush-update-*&quot;) do rd /s /q &quot;%d&quot;" />
+    <CustomAction Id="RemoveUpdateFolders" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+      DllEntry="WixQuietExec" Execute="deferred" Impersonate="yes" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="RemoveUpdateFolders" Before="RemoveFiles"
+        Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
   </Package>
 </Wix>

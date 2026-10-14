@@ -78,6 +78,10 @@ Source: "tonepush-installer.txt"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
+[UninstallDelete]
+; The updater's working folders (fastframe-update), left by the last update.
+Type: filesandordirs; Name: "{app}\.tonepush-update-*"
+
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 

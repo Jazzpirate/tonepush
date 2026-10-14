@@ -1,7 +1,8 @@
 # Installs, updates and removes TonePush's Windows packages on a CI runner,
 # with stand-in program files: the Inno Setup installer of 0.9.x, the MSI
 # taking it over (as the updater runs it, and by hand), an MSI update, and
-# uninstalling with TonePush running and then without.
+# uninstalling with TonePush running and then without, and the updater's
+# working folders kept by an upgrade and removed by an uninstall.
 #
 #   pwsh packaging/windows/test-installer.ps1
 #
@@ -17,6 +18,7 @@ $innoKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E7F9B874-
 $startMenu = Join-Path ([Environment]::GetFolderPath("Programs")) "TonePush.lnk"
 $desktop = Join-Path ([Environment]::GetFolderPath("Desktop")) "TonePush.lnk"
 $defaultFolder = Join-Path $env:LOCALAPPDATA "Programs\TonePush"
+$staging = ".tonepush-update-0123456789abcdef"
 
 function Check($condition, $what) {
   if (-not $condition) { throw "FAILED: $what" }
@@ -65,6 +67,14 @@ function Msiexec($arguments) {
   $process.ExitCode
 }
 
+# A working folder as the updater leaves one next to the editor.
+function Staging($folder) {
+  $dir = Join-Path $folder $staging
+  New-Item -ItemType Directory -Force $dir | Out-Null
+  Set-Content -Path (Join-Path $dir "helper.exe") -Value "helper"
+  $dir
+}
+
 function Program($folder) {
   Get-Content -Raw (Join-Path $folder "tonepush-gui.exe")
 }
@@ -100,12 +110,14 @@ Check (Test-Path $startMenu) "the Start menu shortcut is there"
 Check (Test-Path $desktop) "the desktop shortcut is kept"
 
 # 3. An MSI update run by hand finds the install on its own.
+$stage = Staging $defaultFolder
 $v2 = Msi "0.9.2"
 $code = Msiexec "/i `"$v2`" /qn /norestart"
 Check ($code -in 0, 3010) "the next MSI updates in place ($code)"
 Check ((Program $defaultFolder) -eq "tonepush-gui.exe msi-0.9.2-x64") "the editor is the new one"
 Check ((Entries) -eq 1) "Settings > Apps still lists TonePush once"
 Check (Test-Path $desktop) "the desktop shortcut survives the update"
+Check (Test-Path (Join-Path $stage "helper.exe")) "the update keeps the updater's working folder"
 
 # 4. Uninstalling while the tonepush command runs is refused, untouched.
 $fake = Join-Path $root "running"
@@ -117,6 +129,7 @@ try {
   Check ($code -ne 0 -and $code -ne 3010) "uninstalling while TonePush runs is refused ($code)"
   Check (Select-String -Quiet -Encoding unicode "TonePush is running" $script:lastLog) "by the check for a running TonePush"
   Check ((Program $defaultFolder) -eq "tonepush-gui.exe msi-0.9.2-x64") "nothing was removed"
+  Check (Test-Path $stage) "not even the updater's working folder"
 } finally {
   Stop-Process -Id $running.Id -Force
 }
@@ -124,6 +137,7 @@ try {
 # 5. Uninstalling once it has quit removes everything.
 $code = Msiexec "/x `"$v2`" /qn /norestart"
 Check ($code -in 0, 3010) "uninstalling removes TonePush ($code)"
+Check (-not (Test-Path $stage)) "the updater's working folder is gone"
 Check (-not (Test-Path $defaultFolder)) "the program folder is gone"
 Check (-not (Test-Path $startMenu)) "the Start menu shortcut is gone"
 Check (-not (Test-Path $desktop)) "the desktop shortcut is gone"
@@ -141,6 +155,16 @@ $code = Msiexec "/x `"$v1`" /qn /norestart"
 Check ($code -in 0, 3010) "and uninstalls ($code)"
 Check (-not (Test-Path $custom)) "leaving no folder behind"
 
-# 7. The Windows on ARM package builds.
+# 7. The Inno Setup uninstaller removes the updater's working folder too.
+Inno "0.9.1" "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER"
+$stage = Staging $defaultFolder
+$process = Start-Process (Join-Path $defaultFolder "unins000.exe") -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait -PassThru
+Check ($process.ExitCode -eq 0) "Inno's uninstaller runs"
+# It finishes from a copy of itself in the temporary folder.
+for ($i = 0; $i -lt 30 -and (Test-Path $defaultFolder); $i++) { Start-Sleep 1 }
+Check (-not (Test-Path $stage)) "it removes the updater's working folder"
+Check (-not (Test-Path $defaultFolder)) "and the program folder"
+
+# 8. The Windows on ARM package builds.
 Msi "0.9.1" "arm64" | Out-Null
 Check $true "the arm64 MSI builds"

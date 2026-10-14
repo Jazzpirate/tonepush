@@ -533,6 +533,9 @@ mod tests {
         // Setup closes a running TonePush on its own; Uninstall has to be
         // told, or it removes what it can and leaves the rest behind.
         assert!(script.contains("function InitializeUninstall: Boolean;"));
+        // The updater's working folders go on uninstall.
+        let staging = format!(".{}-update-*", CONFIG.slug);
+        assert!(script.contains(&format!("Name: \"{{app}}\\{staging}\"")));
         let release = include_str!("../../../.github/workflows/release.yml");
         assert!(release.contains("packaging\\windows\\tonepush.iss"));
         assert!(release.contains("dist/*-setup.exe"));
@@ -557,6 +560,10 @@ mod tests {
         // One code for every version, so each one replaces the last.
         assert!(package.contains("UpgradeCode=\"{B4344637-0747-4C62-BB78-1BD669BAE353}\""));
         assert!(package.contains("<MajorUpgrade"));
+        // The updater's working folders go on uninstall, never on upgrade.
+        let staging = format!("[INSTALLFOLDER].{}-update-*", CONFIG.slug);
+        assert!(package.contains(&staging));
+        assert!(package.contains("NOT UPGRADINGPRODUCTCODE"));
         // The Inno Setup installer's AppId, whose install it takes over.
         let script = include_str!("../../../packaging/windows/tonepush.iss");
         let inno = "{E7F9B874-71BE-4DE7-8323-BB09AFBD702F}";
