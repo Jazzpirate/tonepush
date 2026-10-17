@@ -19,7 +19,11 @@ use std::sync::Arc;
 use egui::{Color32, CornerRadius, FontId, Galley, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2};
 
 use crate::theme::{self, Icon, Mood, Tier};
-use crate::{session, App, Cmd, Connection};
+use crate::{crash_reports, session, App, Cmd, Connection};
+
+/// What a crash report never holds, wherever the choice is made.
+const CRASH_REPORTS_NOTE: &str =
+    "Never your tones, presets, file names or account. Change it in Settings.";
 
 /// What the main column shows: the loaded preset, or the pedal's own pages.
 /// The library is a pane under either, not a page.
@@ -2195,8 +2199,80 @@ impl App {
             theme::muted(),
         );
         ui.add_space(6.0);
+        self.crash_reports_setting(ui);
+        ui.add_space(6.0);
         theme::caption(ui, "TonePush");
         self.updates.offer_ui(ui);
+    }
+
+    /// Crash reports: Off or On, kept in the config. The environment
+    /// variable, where set, decides instead, and the switch says so.
+    fn crash_reports_setting(&mut self, ui: &mut Ui) {
+        if !crash_reports::available() {
+            return;
+        }
+        theme::caption(ui, "Crash reports");
+        let consent = crash_reports::Consent::read(Some(&self.config));
+        let segments = [theme::Segment::new("Off"), theme::Segment::new("On")];
+        let chosen = consent.enabled.map(usize::from);
+        let clicked = ui
+            .add_enabled_ui(!consent.from_env, |ui| {
+                theme::segmented(ui, "crash-reports", &segments, chosen, true).clicked
+            })
+            .inner;
+        if let Some(index) = clicked {
+            self.answer_crash_reports(index == 1);
+        }
+        let note = if consent.from_env {
+            "Set by TONEPUSH_CRASH_REPORTS for this run."
+        } else {
+            CRASH_REPORTS_NOTE
+        };
+        theme::label(ui, note, theme::regular(11.5), theme::muted());
+    }
+
+    /// Keep the answer, from the question or the switch.
+    pub(crate) fn answer_crash_reports(&mut self, on: bool) {
+        self.config.crash_reports = Some(on);
+        self.config.save();
+        self.crash_question = false;
+    }
+
+    /// The question asked once, on the first run: send crash reports or
+    /// not. Closing it is a no.
+    pub(crate) fn crash_reports_window(&mut self, ctx: &egui::Context) {
+        if !self.crash_question {
+            return;
+        }
+        let mut decided = None;
+        let (_, close) = theme::dialog(ctx, "crash-reports", 460.0, |ui| {
+            theme::dialog_header(
+                ui,
+                "Send crash reports?",
+                Some(
+                    "If TonePush crashes, it can tell the TonePush team where in its code it \
+                     happened, its version and your operating system, so it gets fixed.",
+                ),
+            );
+            theme::dialog_footer(ui, CRASH_REPORTS_NOTE, |ui| {
+                if theme::Button::new("Send Crash Reports")
+                    .primary()
+                    .show(ui)
+                    .clicked()
+                {
+                    decided = Some(true);
+                }
+                if theme::Button::new("Don't Send").show(ui).clicked() {
+                    decided = Some(false);
+                }
+            });
+        });
+        if close && decided.is_none() {
+            decided = Some(false);
+        }
+        if let Some(on) = decided {
+            self.answer_crash_reports(on);
+        }
     }
 
     /// The deck over the Edit page: the loaded preset, its state in words,

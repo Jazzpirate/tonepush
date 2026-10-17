@@ -74,6 +74,12 @@ pub struct Config {
     /// was left at that size.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub library_pane: std::collections::BTreeMap<String, PaneSize>,
+    /// Send a report to the TonePush team when TonePush crashes: where in
+    /// its code, its version and the operating system, never files, tones,
+    /// names or the token. Left out until the person answers the question
+    /// the app asks once. See `crate::crash_reports`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crash_reports: Option<bool>,
 }
 
 /// The library pane at one size of window.
@@ -121,6 +127,14 @@ impl Config {
             .and_then(|p| std::fs::read(p).ok())
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default()
+    }
+
+    /// The file at `path`, if it reads; for the crash reporter, which looks
+    /// at the choice again when a panic happens.
+    pub fn read(path: &Path) -> Option<Self> {
+        std::fs::read(path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
     }
 
     /// Write the file, creating the directory. Failures are silent: losing a

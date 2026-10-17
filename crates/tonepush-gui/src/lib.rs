@@ -18,6 +18,7 @@ mod browser;
 pub mod cloud;
 mod config;
 mod connect;
+pub mod crash_reports;
 mod devices;
 mod dnd;
 mod eq;
@@ -423,6 +424,9 @@ pub struct App {
 
     /// Favorites and other settings that persist across runs.
     config: config::Config,
+    /// Ask once whether to send crash reports: shown while nobody has
+    /// answered. Tests start without it and turn it on themselves.
+    crash_question: bool,
     /// Show only favorited presets in the list.
     show_favorites_only: bool,
 
@@ -1425,6 +1429,7 @@ impl App {
             irs: Vec::new(),
             setlists: Vec::new(),
             setlist: 0,
+            crash_question: !cfg!(test) && crash_reports::Consent::read(Some(&config)).undecided(),
             config,
             show_favorites_only: false,
             preview: None,
@@ -2198,6 +2203,7 @@ impl App {
         self.confirm_tonepush_delete_window(&ctx);
         self.name_clash_window(&ctx);
         self.save_setlist_window(&ctx);
+        self.crash_reports_window(&ctx);
         self.confirm_switch_window(&ctx);
         self.register_drop_zones(&ctx);
         self.settle_drop(&ctx);

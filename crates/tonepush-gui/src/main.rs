@@ -18,6 +18,16 @@ fn main() -> eframe::Result<()> {
         println!("{}", tonepush_gui::update::version_line());
         return Ok(());
     }
+    // Crash reports, only where the person said yes (see crash_reports.rs).
+    // Before anything that could panic, so a crash at start is reported too.
+    tonepush_gui::crash_reports::install();
+    // Development builds only: panic on purpose, to check crash reports end
+    // to end (`TONEPUSH_CRASH_TEST=1 TONEPUSH_CRASH_REPORTS=1`). It comes
+    // before the library is read, so no data is touched.
+    #[cfg(debug_assertions)]
+    if std::env::var_os("TONEPUSH_CRASH_TEST").is_some() {
+        panic!("TonePush crash report test");
+    }
     // An update relaunches with the arguments this launch had.
     let relaunch = launch
         .arguments

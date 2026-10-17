@@ -127,6 +127,28 @@ Copies installed with Homebrew, the AUR or a .deb/.rpm are left to that package
 manager, and the settings say which. An AppImage is replaced by downloading
 the new one.
 
+### Crash reports
+
+Crash reports are off until you say otherwise. The editor asks once, on its
+first run, and the settings beside the sidebar's foot have a **Crash reports**
+switch; the choice is `crash_reports` in `~/.config/tonepush/config.json`, and
+`TONEPUSH_CRASH_REPORTS=1` or `0` overrides it for one run.
+
+When they are on and the editor panics, it sends one report to our own error
+tracker, [Bugsink](https://www.bugsink.com) at `errors.paolino.me`, on a server
+in Germany: where in TonePush's source code it happened (file, line, column),
+the panic's message only if it was written in the source code (or the start of
+one of Rust's own, such as "index out of bounds"), the TonePush version,
+whether it is a development build, and the operating system's name, Linux
+kernel version and processor architecture. Never your user or computer name,
+the command line, environment variables, file, tone, preset, setlist or backup
+names or contents, or your TonePush account. Paths in a report have your home
+folder replaced with `~`. At most five reports of the same crash and thirty in
+all go out an hour. Only Rust panics are reported, not native crashes.
+
+Builds made with `TONEPUSH_CRASH_REPORTS_DSN=""` in the environment cannot send
+crash reports at all.
+
 ### HX model names and pictures
 
 Names, parameter ranges, value formatting and artwork come from HX Edit's own
