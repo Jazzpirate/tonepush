@@ -1237,9 +1237,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastframe-dirs"
+version = "0.8.1"
+source = "git+https://github.com/crmne/fastframe?tag=v0.8.1#6699f993d61af09719d8d61a02a345119226b056"
+dependencies = [
+ "directories",
+]
+
+[[package]]
 name = "fastframe-emoji"
-version = "0.6.0"
-source = "git+https://github.com/crmne/fastframe?tag=v0.6.0#0d65ca99eb6d00f10ff556bf985249658feed469"
+version = "0.8.1"
+source = "git+https://github.com/crmne/fastframe?tag=v0.8.1#6699f993d61af09719d8d61a02a345119226b056"
 dependencies = [
  "egui",
  "fastframe-fonts",
@@ -1256,8 +1264,8 @@ dependencies = [
 
 [[package]]
 name = "fastframe-fonts"
-version = "0.6.0"
-source = "git+https://github.com/crmne/fastframe?tag=v0.6.0#0d65ca99eb6d00f10ff556bf985249658feed469"
+version = "0.8.1"
+source = "git+https://github.com/crmne/fastframe?tag=v0.8.1#6699f993d61af09719d8d61a02a345119226b056"
 dependencies = [
  "directories",
  "egui",
@@ -1269,16 +1277,16 @@ dependencies = [
 
 [[package]]
 name = "fastframe-scroll"
-version = "0.6.0"
-source = "git+https://github.com/crmne/fastframe?tag=v0.6.0#0d65ca99eb6d00f10ff556bf985249658feed469"
+version = "0.8.1"
+source = "git+https://github.com/crmne/fastframe?tag=v0.8.1#6699f993d61af09719d8d61a02a345119226b056"
 dependencies = [
  "egui",
 ]
 
 [[package]]
 name = "fastframe-text"
-version = "0.6.0"
-source = "git+https://github.com/crmne/fastframe?tag=v0.6.0#0d65ca99eb6d00f10ff556bf985249658feed469"
+version = "0.8.1"
+source = "git+https://github.com/crmne/fastframe?tag=v0.8.1#6699f993d61af09719d8d61a02a345119226b056"
 dependencies = [
  "egui",
  "zbus",
@@ -1286,10 +1294,11 @@ dependencies = [
 
 [[package]]
 name = "fastframe-update"
-version = "0.6.0"
-source = "git+https://github.com/crmne/fastframe?tag=v0.6.0#0d65ca99eb6d00f10ff556bf985249658feed469"
+version = "0.8.1"
+source = "git+https://github.com/crmne/fastframe?tag=v0.8.1#6699f993d61af09719d8d61a02a345119226b056"
 dependencies = [
  "anyhow",
+ "fastframe-dirs",
  "ring",
  "serde",
  "serde_json",
