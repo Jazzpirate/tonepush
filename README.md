@@ -135,7 +135,7 @@ switch; the choice is `crash_reports` in `~/.config/tonepush/config.json`, and
 `TONEPUSH_CRASH_REPORTS=1` or `0` overrides it for one run.
 
 When they are on and the editor panics, it sends one report to our own error
-tracker, [Bugsink](https://www.bugsink.com) at `errors.paolino.me`, on a server
+tracker, [Bugsink](https://www.bugsink.com) at `errors.plenty.is`, on a server
 in Germany: where in TonePush's source code it happened (file, line, column),
 the panic's message only if it was written in the source code (or the start of
 one of Rust's own, such as "index out of bounds"), the TonePush version,

@@ -4,7 +4,7 @@
 //! Settings has a switch. The choice is `crash_reports` in `config.json`;
 //! `TONEPUSH_CRASH_REPORTS=1` or `0` overrides it. What's sent is a Rust
 //! panic only, to TonePush's project on our own error tracker, Bugsink at
-//! `errors.paolino.me`, which speaks the Sentry protocol:
+//! `errors.plenty.is`, which speaks the Sentry protocol:
 //!
 //! - where in the source code it panicked (file, line and column);
 //! - the panic's message only when it was written in the source code, or
@@ -44,7 +44,7 @@ use crate::config::Config;
 /// The `tonepush-desktop` project on our Bugsink server. A DSN only lets a
 /// client submit events, so it ships inside the program like any other
 /// client's.
-const DEFAULT_DSN: &str = "https://faf40925c6714fd29a0f0415620edd2c@errors.paolino.me/9";
+const DEFAULT_DSN: &str = "https://faf40925c6714fd29a0f0415620edd2c@errors.plenty.is/9";
 
 /// `TONEPUSH_CRASH_REPORTS_DSN` at build time replaces the address, and an
 /// empty value builds a TonePush that can't send crash reports at all.
@@ -859,19 +859,16 @@ mod tests {
     #[test]
     fn the_compiled_address_is_our_bugsink_project() {
         let dsn = Dsn::parse(DEFAULT_DSN).expect("the default DSN parses");
-        assert_eq!(dsn.origin, "https://errors.paolino.me");
+        assert_eq!(dsn.origin, "https://errors.plenty.is");
         assert_eq!(dsn.project, "9");
         assert_eq!(
             dsn.envelope_url(),
-            "https://errors.paolino.me/api/9/envelope/"
+            "https://errors.plenty.is/api/9/envelope/"
         );
         assert!(available());
-        assert!(
-            Dsn::parse("https://errors.paolino.me/9").is_none(),
-            "no key"
-        );
-        assert!(Dsn::parse("ftp://k@errors.paolino.me/9").is_none());
-        assert!(Dsn::parse("https://k@errors.paolino.me/").is_none());
+        assert!(Dsn::parse("https://errors.plenty.is/9").is_none(), "no key");
+        assert!(Dsn::parse("ftp://k@errors.plenty.is/9").is_none());
+        assert!(Dsn::parse("https://k@errors.plenty.is/").is_none());
     }
 
     /// A one-request HTTP server: the request's head and body.
