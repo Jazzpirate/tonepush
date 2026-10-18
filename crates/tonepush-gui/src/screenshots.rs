@@ -118,6 +118,10 @@ enum Scene {
     ProAudition,
     /// Dream Pop auditioned, two knobs turned since: the edits stay with it.
     HxAuditionEdited,
+    /// A Helix Floor, its eight setlists to choose from above the presets.
+    HxFloor,
+    /// The same, another setlist shown while the loaded preset stays loaded.
+    HxFloorBrowsing,
     /// Slapback Twang put in 05B, which holds Chime Clean: the question.
     HxPutAsk,
     /// Three tones put from 14C: the question for several.
@@ -176,7 +180,7 @@ enum Scene {
 }
 
 impl Scene {
-    const ALL: [Scene; 67] = [
+    const ALL: [Scene; 69] = [
         Scene::HxEdit,
         Scene::ProEdit,
         Scene::NoDevice,
@@ -217,6 +221,8 @@ impl Scene {
         Scene::HxCannotPlay,
         Scene::ProAudition,
         Scene::HxAuditionEdited,
+        Scene::HxFloor,
+        Scene::HxFloorBrowsing,
         Scene::HxPutAsk,
         Scene::HxPutSeveral,
         Scene::ProReadOnlyKeep,
@@ -288,6 +294,8 @@ impl Scene {
             Scene::HxCannotPlay => "hx-cannot-play",
             Scene::ProAudition => "pro-audition",
             Scene::HxAuditionEdited => "hx-audition-edited",
+            Scene::HxFloor => "hx-floor",
+            Scene::HxFloorBrowsing => "hx-floor-browsing",
             Scene::HxPutAsk => "hx-put-ask",
             Scene::HxPutSeveral => "hx-put-several",
             Scene::ProReadOnlyKeep => "pro-read-only-keep",
@@ -382,6 +390,24 @@ impl Scene {
                 app.lib_reveal = true;
             }
             Scene::Settings => hx_stomp(app),
+            Scene::HxFloor | Scene::HxFloorBrowsing => {
+                helix_floor(app);
+                if self == Scene::HxFloorBrowsing {
+                    app.setlist = 1;
+                    // Nothing of this setlist is backed up in the scene, so
+                    // the library has nothing to say about its slots.
+                    app.mirror.clear();
+                    app.presets = (0..128)
+                        .map(|index| match index {
+                            0 => "Opener Crunch".to_owned(),
+                            1 => "Big Chorus Lead".to_owned(),
+                            2 => "Bridge Swell".to_owned(),
+                            3 => "Encore Fuzz".to_owned(),
+                            _ => "New Preset".to_owned(),
+                        })
+                        .collect();
+                }
+            }
             Scene::ProEdit => pro(app),
             Scene::SetlistConfirm | Scene::HxSetlists => {
                 hx_stomp(app);
@@ -2197,6 +2223,31 @@ fn backups_history(app: &mut App) {
 /// 01B Plexi Crunch on an HX Stomp: a wah under EXP 1, a drive on FS1, the
 /// amp selected, a Y split into two cabs, a tape delay the Solo snapshot turns
 /// on, and a reverb on FS3. Models are found by name in HX Edit's catalog.
+/// The HX Stomp scene's pedal as a Helix Floor: 128 presets and eight
+/// setlists, the loaded preset in the first.
+fn helix_floor(app: &mut App) {
+    hx_stomp(app);
+    app.device = "Helix Floor".to_owned();
+    app.library_connected_device = "Helix Floor".to_owned();
+    app.library_device_filter = Some("Helix Floor".to_owned());
+    app.preset_count = 128;
+    app.presets.resize(128, "New Preset".to_owned());
+    app.setlists = [
+        "Rehearsal",
+        "Live Set",
+        "Studio",
+        "USER 2",
+        "USER 3",
+        "USER 4",
+        "USER 5",
+        "TEMPLATES",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    app.setlist = 0;
+    app.loaded_setlist = 0;
+}
+
 fn hx_stomp(app: &mut App) {
     use hx_proto::preset::{Assignment, Kind, Lane, Layout, Path, Target};
     use hx_proto::rpc::Source;

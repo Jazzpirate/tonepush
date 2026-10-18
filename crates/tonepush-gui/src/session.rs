@@ -396,6 +396,13 @@ pub enum Evt {
     /// The device's favourite blocks, as (index, name).
     Favourites(Vec<(i64, String)>),
     Setlists(Vec<String>),
+    /// Which setlist the preset list shows, and which one holds the loaded
+    /// preset. They differ while another setlist is being browsed, and then
+    /// nothing in the list is the loaded preset.
+    Setlist {
+        showing: i64,
+        loaded: i64,
+    },
     /// Every preset in the setlist, as (name, document bytes). An empty slot
     /// comes back as `None` so the setlist can record that it is empty rather
     /// than silently shortening.
@@ -733,12 +740,7 @@ impl Worker {
                     }
                 }
             }
-            Cmd::SelectSetlist(index) => {
-                self.setlist = index;
-                if let Some(names) = self.try_on_device(|d| d.presets(index)) {
-                    self.send(Evt::Presets(names));
-                }
-            }
+            Cmd::SelectSetlist(index) => self.show_setlist(index),
             Cmd::LoadDocument { dest, bytes } => {
                 // A document that does not land leaves the editor waiting
                 // for it, and what is loaded now is the answer.
@@ -1284,14 +1286,39 @@ impl Worker {
         if self.device.is_none() {
             return;
         }
+        // The list opens on the setlist the pedal is playing from, which on a
+        // device with several is not necessarily the first.
+        self.setlist = self.shown.setlist.max(0);
+        let setlist = self.setlist;
         // The name list rides on the flakier control channel, so give
         // it the same second chance the session itself gets.
         let names = self
-            .try_on_device(|d| d.presets(0))
-            .or_else(|| self.try_on_device(|d| d.presets(0)));
+            .try_on_device(|d| d.presets(setlist))
+            .or_else(|| self.try_on_device(|d| d.presets(setlist)));
         if let Some(names) = names {
             self.send(Evt::Presets(names));
         }
+        self.send_setlist();
+    }
+
+    /// Show another setlist's presets. Nothing on the pedal changes: the
+    /// loaded preset stays loaded until one in this list is picked.
+    fn show_setlist(&mut self, setlist: i64) {
+        if setlist < 0 {
+            return;
+        }
+        if let Some(names) = self.try_on_device(|d| d.presets(setlist)) {
+            self.setlist = setlist;
+            self.send(Evt::Presets(names));
+        }
+        self.send_setlist();
+    }
+
+    fn send_setlist(&self) {
+        self.send(Evt::Setlist {
+            showing: self.setlist,
+            loaded: self.shown.setlist,
+        });
     }
 
     /// Let go of the pedal, and of what only meant something while it was
@@ -2179,6 +2206,7 @@ impl Worker {
         let chain = chain_of(preset);
         self.snapshot_taken = false;
         self.shown.snapshot = active_snapshot(preset);
+        self.send_setlist();
         self.send(Evt::Loaded {
             index: self.shown.index,
             name: self.shown.name.clone(),
@@ -2248,7 +2276,13 @@ impl Worker {
         }
         let label = self.slot_label(index);
         self.send(Evt::Activity(format!("the pedal loaded {label} {name}")));
+        // A list showing the setlist the pedal was playing from follows it
+        // to the one it plays from now; one being browsed stays put.
+        let follow = self.setlist == self.shown.setlist && setlist != self.setlist;
         self.reload();
+        if follow {
+            self.show_setlist(setlist);
+        }
         true
     }
 
@@ -3282,6 +3316,91 @@ mod tests {
         assert_eq!(active_snapshot(&picked), Some(2));
         let beyond = parse(with_snapshot(&document(120.0), 9));
         assert_eq!(active_snapshot(&beyond), None, "there is no tenth snapshot");
+    }
+
+    /// The setlist each request of one kind named, in order.
+    fn setlists_asked(pedal: &Arc<Mutex<Pedal>>, opcode: i64) -> Vec<i64> {
+        pedal
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .filter(|(op, _)| *op == opcode)
+            .map(|(_, args)| args.get(key::SETLIST).and_then(Value::as_i64).unwrap_or(-1))
+            .collect()
+    }
+
+    fn setlist_events(events: &Receiver<Evt>) -> Vec<(i64, i64)> {
+        events
+            .try_iter()
+            .filter_map(|e| match e {
+                Evt::Setlist { showing, loaded } => Some((showing, loaded)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A Helix Floor has eight setlists, and the list used to open on the
+    /// first whichever one the pedal was playing from.
+    #[test]
+    fn connecting_opens_the_list_on_the_setlist_the_pedal_plays_from() {
+        let pedal = Pedal::new();
+        pedal.lock().unwrap().loaded.0 = 3;
+        let (_commands, cmds) = mpsc::channel();
+        let (tx, events) = mpsc::channel();
+        let mut worker = Worker::new(
+            cmds,
+            Events {
+                tx,
+                repaint: RepaintSignal::default(),
+            },
+            None,
+        );
+        worker.opened(session(&pedal));
+
+        assert_eq!(setlists_asked(&pedal, op::LIST_PRESETS), [3]);
+        assert_eq!(setlist_events(&events).last(), Some(&(3, 3)));
+    }
+
+    /// Showing another setlist loads nothing; picking a preset in it loads
+    /// that setlist's preset, and saving goes where the pedal says it is.
+    #[test]
+    fn another_setlist_is_shown_without_loading_and_picked_from_where_it_is() {
+        let pedal = Pedal::new();
+        let (mut worker, events) = worker(&pedal);
+
+        worker.handle(Cmd::SelectSetlist(3));
+        assert!(!pedal.lock().unwrap().opcodes().contains(&op::SELECT_PRESET));
+        assert_eq!(setlists_asked(&pedal, op::LIST_PRESETS).last(), Some(&3));
+        assert_eq!(setlist_events(&events), [(3, 0)]);
+
+        worker.handle(Cmd::SelectPreset(5));
+        assert_eq!(setlists_asked(&pedal, op::SELECT_PRESET), [3]);
+        assert_eq!(setlist_events(&events).last(), Some(&(3, 3)));
+    }
+
+    /// The pedal changing setlist by itself takes a list showing its old
+    /// setlist along, and leaves one somebody is browsing where it is.
+    #[test]
+    fn the_list_follows_the_pedal_to_another_setlist_unless_it_is_browsing() {
+        let pedal = Pedal::new();
+        let (mut worker, events) = worker(&pedal);
+        let move_pedal = |setlist: i64, index: i64| {
+            let mut pedal = pedal.lock().unwrap();
+            let (name, document) = pedal.stored[&index].clone();
+            pedal.loaded = (setlist, index, name);
+            pedal.buffer = document;
+            pedal.announce_load(index);
+        };
+
+        move_pedal(4, 5);
+        worker.poll();
+        assert_eq!(setlist_events(&events).last(), Some(&(4, 4)));
+
+        worker.handle(Cmd::SelectSetlist(6));
+        move_pedal(1, 2);
+        worker.poll();
+        assert_eq!(setlist_events(&events).last(), Some(&(6, 1)));
     }
 
     /// A preset loaded from the pedal's own footswitches has to replace the
