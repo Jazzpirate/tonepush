@@ -318,11 +318,14 @@ A Helix Floor (3.80) numbers its sources differently, and HX Edit's `.hlx`
 readable from one Floor's 231 presets and its HX Edit backup (#28). Its
 controller table has 20 entries. **1 and 2 are EXP 1 and EXP 2** (both drive
 wah and volume `Pedal` parameters) and **19 is Snapshots** (parameters with no
-footswitch fields that change per snapshot). **7–10 and 13–16 are footswitches**:
-Line 6's template preset labels them "Please / Use Snaps / w/ Manual / Return"
-on 7–10 and "Tap Once / Then Use / Snapshot / View" on 13–16, so each run is a
-row, but which switch number starts each row is not yet confirmed. Ordinals 3–6,
-11, 12, 17 and 18 have not been seen; MIDI CC is among them. A Variax model
+footswitch fields that change per snapshot). **Footswitches are their number
+plus 5**: Line 6's template preset labels 7–10 "Please / Use Snaps / w/ Manual /
+Return" and 13–16 "Tap Once / Then Use / Snapshot / View", and in stomp mode the
+Floor shows "Please" on FS2 and "Tap Once" on FS8 (FS1–FS6 is the top row, FS7–FS12
+the bottom). So FS1–FS12 are 6–17, and the ones not seen (6, 11, 12, 17) are the
+switches the Floor reserves by default: Bank up, Mode, Bank down and Tap.
+Ordinals 3–5 and 18 have not been seen; EXP 3, the Variax knobs and MIDI CC
+are the likely candidates, unconfirmed. A Variax model
 switched per snapshot is an assignment with neither a bypass (key 9) nor a
 parameter target (key 6): `{5: 0, 8: 45}`, shown by HX Edit as
 `variax/@variax_model`. The parser accepts these; naming them, and writing
