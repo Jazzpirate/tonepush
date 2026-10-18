@@ -324,8 +324,23 @@ Return" and 13–16 "Tap Once / Then Use / Snapshot / View", and in stomp mode t
 Floor shows "Please" on FS2 and "Tap Once" on FS8 (FS1–FS6 is the top row, FS7–FS12
 the bottom). So FS1–FS12 are 6–17, and the ones not seen (6, 11, 12, 17) are the
 switches the Floor reserves by default: Bank up, Mode, Bank down and Tap.
-Ordinals 3–5 and 18 have not been seen; EXP 3, the Variax knobs and MIDI CC
-are the likely candidates, unconfirmed. A Variax model
+The front panel's controller menu lists the sources in ordinal order and
+fills in the rest: None, EXP Pedal 1–3, Variax Vol, Variax Tone, Footswitch
+1–11, MIDI CC, Snapshots. That is 19 choices for 20 ordinals, and Snapshots is
+19, so the one left out is 17, FS12 (Tap/Tuner), which takes no controller:
+
+| Ordinal | Source |
+|---|---|
+| 0 | None |
+| 1–3 | EXP Pedal 1–3 |
+| 4, 5 | Variax Vol, Variax Tone |
+| 6–16 | Footswitch 1–11 |
+| 17 | FS12, not offered |
+| 18 | MIDI CC |
+| 19 | Snapshots |
+
+1, 2, 7–10, 13–16 and 19 are confirmed by presets; 3–5 and 18 rest on the menu
+order alone. A Variax model
 switched per snapshot is an assignment with neither a bypass (key 9) nor a
 parameter target (key 6): `{5: 0, 8: 45}`, shown by HX Edit as
 `variax/@variax_model`. The parser accepts these; naming them, and writing
