@@ -8,7 +8,7 @@ targets; the release workflow's native macOS job builds the DMG target.
 Application assets and native recipes stay in `packaging/`.
 
 ```sh
-gem install native-packages --version 0.8.1
+gem install native-packages --version 0.10.0
 native-packages validate
 native-packages doctor
 native-packages build --release v1.2.3
@@ -48,7 +48,7 @@ Homebrew automation needs `PUBLISH_HOMEBREW=true` and
 The native macOS target, Windows and Flatpak build steps remain responsible
 for their native artifacts. Additional nFPM formats require suitable platform
 inputs and dependencies; adding a format does not port the application.
-See the [shared CLI documentation](https://github.com/crmne/native-packages/tree/v0.8.1)
+See the [shared CLI documentation](https://github.com/crmne/native-packages/tree/v0.10.0)
 for commands and supported formats.
 
 To upgrade the tool, change `tool.version` in `native-packages.yaml`, the
@@ -231,7 +231,7 @@ secrets, which the job exposes as environment variables:
 A complete set enables notarization automatically. An incomplete set fails;
 no values retain local builds without Developer ID signing. Application inputs
 and the user's normal keychains remain unchanged. See the shared
-[Apple setup and phase contract](https://github.com/crmne/native-packages/blob/v0.8.1/docs/apple-notarization.md).
+[Apple setup and phase contract](https://github.com/crmne/native-packages/blob/v0.10.0/docs/apple-notarization.md).
 
 After preparing `dist/macos-input` on a Mac, test packaging without publishing:
 
