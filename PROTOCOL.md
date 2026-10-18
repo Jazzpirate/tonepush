@@ -312,6 +312,21 @@ None**, 1–2 the expression pedals, 3–7 the footswitches, 8 MIDI CC, 9 Snapsh
 An HX Effects has six footswitches and its stored presets use ordinal **10** as
 well; from the data it looks like 3–8 footswitches, 9 MIDI CC and 10 Snapshots
 there, but that is not confirmed (#9).
+
+A Helix Floor (3.80) numbers its sources differently, and HX Edit's `.hlx`
+`@controller` is the same ordinal as the document's, which made the table
+readable from one Floor's 231 presets and its HX Edit backup (#28). Its
+controller table has 20 entries. **1 and 2 are EXP 1 and EXP 2** (both drive
+wah and volume `Pedal` parameters) and **19 is Snapshots** (parameters with no
+footswitch fields that change per snapshot). **7–10 and 13–16 are footswitches**:
+Line 6's template preset labels them "Please / Use Snaps / w/ Manual / Return"
+on 7–10 and "Tap Once / Then Use / Snapshot / View" on 13–16, so each run is a
+row, but which switch number starts each row is not yet confirmed. Ordinals 3–6,
+11, 12, 17 and 18 have not been seen; MIDI CC is among them. A Variax model
+switched per snapshot is an assignment with neither a bypass (key 9) nor a
+parameter target (key 6): `{5: 0, 8: 45}`, shown by HX Edit as
+`variax/@variax_model`. The parser accepts these; naming them, and writing
+assignments with the Floor's ordinals, is not done yet.
 Key **71 is not the constant it looks like**: it is the assignment's on switch,
 `4` when one is made and `0` when it is removed, and removing sends `{74: 0,
 71: 0}` rather than a separate opcode.
