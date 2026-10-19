@@ -895,6 +895,15 @@ impl Worker {
                     self.future.clear();
                     self.report_history();
                     self.reload();
+                } else if moved {
+                    // The slide went out before the pedal refused the model:
+                    // put the document back as it was, then show whatever the
+                    // pedal holds. A session already lost makes the write a
+                    // no-op, and the reload with it.
+                    if let Some(original) = hx_proto::Preset::parse(&original) {
+                        self.run_on_device(|d| d.write_preset(&original));
+                    }
+                    self.reload();
                 }
             }
             Cmd::AssignBypassFootswitch { block, switch, on } => {
@@ -3266,6 +3275,40 @@ mod tests {
         assert_eq!(active_snapshot(&picked), Some(2));
         let beyond = parse(with_snapshot(&document(120.0), 9));
         assert_eq!(active_snapshot(&beyond), None, "there is no tenth snapshot");
+    }
+
+    /// A block that needed others slid out of its way, and whose model the
+    /// pedal then refused, must not leave the pedal holding the slide: the
+    /// editor would show one layout and the pedal play another.
+    #[test]
+    fn a_refused_insert_puts_back_the_blocks_it_slid() {
+        let pedal = Pedal::new();
+        let (mut worker, _events) = worker(&pedal);
+        let original = pedal.lock().unwrap().buffer.clone();
+        let parsed = hx_proto::Preset::parse(&original).unwrap();
+        let (first, _) = parsed.blocks().next().expect("a block");
+        let mut slid = hx_proto::Preset::parse(&original).unwrap();
+        assert_eq!(slid.room_before(first), Some(first));
+        assert_ne!(slid.encode(), original, "inserting here slides a block");
+
+        pedal.lock().unwrap().refuse.insert(op::SET_MODEL, -3);
+        worker.handle(Cmd::InsertBlock {
+            at: first,
+            model: 101,
+            paired: None,
+        });
+
+        let pedal = pedal.lock().unwrap();
+        let writes = pedal
+            .opcodes()
+            .iter()
+            .filter(|op| **op == op::WRITE_PRESET)
+            .count();
+        assert_eq!(writes, 2, "the slide, then the document put back");
+        assert_eq!(pedal.buffer, original);
+        drop(pedal);
+        assert!(worker.history.is_empty(), "nothing happened to undo");
+        assert!(!worker.dirty);
     }
 
     /// A preset loaded from the pedal's own footswitches has to replace the
