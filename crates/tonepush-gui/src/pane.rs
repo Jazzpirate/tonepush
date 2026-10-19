@@ -3582,22 +3582,27 @@ impl App {
             egui::Frame::new()
                 .inner_margin(egui::Margin::same(14))
                 .show(ui, |ui| {
-                    let columns = sources.len().max(1);
                     let gap = 12.0;
+                    let columns = board_columns(sources.len(), ui.available_width(), gap);
                     let width = ((ui.available_width() - gap * (columns as f32 - 1.0))
                         / columns as f32)
                         .floor();
-                    // One height for the row: the tallest card's.
+                    // One height for every row: the tallest card's.
                     let height = sources
                         .iter()
                         .map(|source| self.source_card_height(*source))
                         .fold(0.0, f32::max);
-                    ui.horizontal_top(|ui| {
-                        ui.spacing_mut().item_spacing.x = gap;
-                        for source in &sources {
-                            self.source_card(ui, *source, Vec2::new(width, height));
+                    for (row, cards) in sources.chunks(columns).enumerate() {
+                        if row > 0 {
+                            ui.add_space(gap);
                         }
-                    });
+                        ui.horizontal_top(|ui| {
+                            ui.spacing_mut().item_spacing.x = gap;
+                            for source in cards {
+                                self.source_card(ui, *source, Vec2::new(width, height));
+                            }
+                        });
+                    }
                 });
         });
         if open_midi {
@@ -3828,9 +3833,34 @@ impl App {
     }
 }
 
+/// How many source cards share a row of the footswitch board: all of them
+/// when each still gets 160 points, as an HX Stomp's always do, and otherwise
+/// as many as do. A Helix Floor lists eleven footswitches, three pedals and two
+/// Variax knobs, and in one row their words ran into each other.
+fn board_columns(cards: usize, available: f32, gap: f32) -> usize {
+    const NARROWEST: f32 = 160.0;
+    let fit = ((available + gap) / (NARROWEST + gap)).floor().max(1.0) as usize;
+    cards.clamp(1, fit)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_crowded_footswitch_board_wraps_rather_than_squeezing() {
+        // An HX Stomp's cards keep one row.
+        assert_eq!(board_columns(5, 1200.0, 12.0), 5);
+        // A Helix Floor's sixteen in the same room wrap, seven to a row, each
+        // keeping its 160 points.
+        let columns = board_columns(16, 1200.0, 12.0);
+        assert_eq!(columns, 7);
+        let width = (1200.0 - 12.0 * (columns as f32 - 1.0)) / columns as f32;
+        assert!(width >= 160.0, "{width}");
+        // Never fewer than one, however narrow.
+        assert_eq!(board_columns(16, 50.0, 12.0), 1);
+        assert_eq!(board_columns(0, 1200.0, 12.0), 1);
+    }
 
     #[test]
     fn a_face_never_leaves_one_straggler() {
