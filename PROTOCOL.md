@@ -340,7 +340,15 @@ fills in the rest: None, EXP Pedal 1–3, Variax Vol, Variax Tone, Footswitch
 | 19 | Snapshots |
 
 1, 2, 7–10, 13–16 and 19 are confirmed by presets; 3–5 and 18 rest on the menu
-order alone. A Variax model
+order alone.
+
+Per-switch settings (name, light, latching, and what a switch turns on and off)
+are addressed by the Floor's own footswitch number, as on the Stomp: reading
+switch 9 of a preset returned the name the pedal shows on the second switch of
+the lower row, and switch 11 the one on the fourth. Switches 6 and 12, Mode and
+Tap by default, read back empty. A block's bypass on a footswitch shows up in
+that switch's list rather than in the controller table, which is why no Floor
+preset had a bypass entry there. A Variax model
 switched per snapshot is an assignment with neither a bypass (key 9) nor a
 parameter target (key 6): `{5: 0, 8: 45}`, shown by HX Edit as
 `variax/@variax_model`. The parser accepts these; naming them, and writing

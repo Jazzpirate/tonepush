@@ -107,7 +107,10 @@ pub const HELIX_FLOOR: DeviceProfile = DeviceProfile {
     name: "Helix Floor",
     presets: 128,
     presets_per_bank: 3,
-    switches: 10,
+    // FS1 to FS11 take assignments, as its own menu lists them; FS12 is
+    // Tap/Tuner. The pedal's own footswitch numbers address them, so
+    // switch 9 is the second on the lower row.
+    switches: 11,
     device_id: 0x0021_0001,
     controls: rpc::ControlLayout::Helix,
 };
@@ -174,6 +177,12 @@ mod tests {
         for (product_id, profile) in expected {
             assert_eq!(profile_for(product_id), Some(&profile));
         }
+    }
+
+    #[test]
+    fn a_helix_floor_has_eleven_assignable_footswitches() {
+        assert_eq!(HELIX_FLOOR.switches, 11);
+        assert_eq!(HELIX_FLOOR.controls, rpc::ControlLayout::Helix);
     }
 
     #[test]

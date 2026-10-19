@@ -2234,9 +2234,10 @@ fn helix_floor_controls(app: &mut App) {
         more.into_iter()
             .filter(|a| matches!(a.source, Source::Footswitch(2) | Source::Footswitch(11))),
     );
-    // Its ten stomp switches, the three the Stomp scene names among them.
+    // Its eleven assignable switches, the three the Stomp scene names among
+    // them.
     let named = std::mem::take(&mut app.switches);
-    app.switches = (1..=10)
+    app.switches = (1..=11)
         .map(|switch| {
             named
                 .iter()
