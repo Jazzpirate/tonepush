@@ -343,9 +343,15 @@ fills in the rest: None, EXP Pedal 1–3, Variax Vol, Variax Tone, Footswitch
 on the hardware: assignments TonePush made to EXP 3, Variax Vol and FS7 show on
 the Floor's own controller pages under those names, and a MIDI CC assignment
 made on the Floor's front panel is stored under 18. 5 (Variax Tone) rests on the
-menu order. The Floor accepts an assignment over USB on a parameter its own
-pages offer no controller for, such as a cab's Mic, shows it as None, and drops
-it the next time the preset is saved on the pedal.
+menu order.
+
+**An assignment's target carries a flag at key 41.** The Floor's own Mic to EXP 3
+assignment on a cab is stored as `6: {28: 0, 29: 0, 41: true}`, travel 0 to 15;
+the cab's first ordinary parameter, Distance, is `{28: 0, 29: 0, 41: false}`. So
+`29: 0` alone does not say which parameter: with 41 set it is the cab's Mic. The
+parser ignores 41 and reads that assignment as Distance, and opcode 37 always
+sends its key 129 as false, which is probably the same switch. Seen on a Floor;
+an HX Stomp cab presumably stores its Mic the same way.
 
 Per-switch settings (name, light, latching, and what a switch turns on and off)
 are addressed by the Floor's own footswitch number, as on the Stomp: reading
