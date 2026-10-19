@@ -66,6 +66,9 @@ enum Scene {
     HxFootswitches,
     /// The Snapshots lens.
     HxSnapshots,
+    /// A Helix Floor's Footswitches lens: its own footswitch numbers and its
+    /// third expression pedal.
+    HxFloorFootswitches,
     /// The library's setlists, one compared with the pedal bank by bank.
     HxSetlists,
     /// The StompStation PRO's NAM amps, the AC30 chosen.
@@ -176,7 +179,7 @@ enum Scene {
 }
 
 impl Scene {
-    const ALL: [Scene; 67] = [
+    const ALL: [Scene; 68] = [
         Scene::HxEdit,
         Scene::ProEdit,
         Scene::NoDevice,
@@ -191,6 +194,7 @@ impl Scene {
         Scene::HxBrowser,
         Scene::HxFootswitches,
         Scene::HxSnapshots,
+        Scene::HxFloorFootswitches,
         Scene::HxSetlists,
         Scene::ProNam,
         Scene::ProIrs,
@@ -262,6 +266,7 @@ impl Scene {
             Scene::HxBrowser => "hx-browser",
             Scene::HxFootswitches => "hx-footswitches",
             Scene::HxSnapshots => "hx-snapshots",
+            Scene::HxFloorFootswitches => "hx-floor-footswitches",
             Scene::HxSetlists => "hx-setlists",
             Scene::ProNam => "pro-nam",
             Scene::ProIrs => "pro-irs",
@@ -835,6 +840,11 @@ impl Scene {
             Scene::HxSnapshots => {
                 hx_stomp(app);
                 app.lens = crate::pane::Lens::Snapshots;
+            }
+            Scene::HxFloorFootswitches => {
+                helix_floor_controls(app);
+                app.lens = crate::pane::Lens::Footswitches;
+                app.focused_source = Some(hx_proto::rpc::Source::Footswitch(8));
             }
             Scene::NoDevice => {
                 app.connection = Connection::Connecting;
@@ -2197,6 +2207,55 @@ fn backups_history(app: &mut App) {
 /// 01B Plexi Crunch on an HX Stomp: a wah under EXP 1, a drive on FS1, the
 /// amp selected, a Y split into two cabs, a tape delay the Solo snapshot turns
 /// on, and a reverb on FS3. Models are found by name in HX Edit's catalog.
+/// The HX Stomp scene's preset on a Helix Floor, its controls moved onto
+/// what a Floor has: footswitches 2, 8 and 11 and a third expression pedal.
+fn helix_floor_controls(app: &mut App) {
+    use hx_proto::rpc::Source;
+    hx_stomp(app);
+    app.device = "Helix Floor".to_owned();
+    app.library_connected_device = "Helix Floor".to_owned();
+    app.library_device_filter = Some("Helix Floor".to_owned());
+    app.preset_count = 128;
+    app.presets.resize(128, "New Preset".to_owned());
+    for assignment in &mut app.assignments {
+        assignment.source = match assignment.source {
+            Source::Expression(1) => Source::Expression(3),
+            Source::Footswitch(2) => Source::Footswitch(8),
+            other => other,
+        };
+    }
+    let mut more = app.assignments.clone();
+    for assignment in &mut more {
+        assignment.source = match assignment.source {
+            Source::Footswitch(8) => Source::Footswitch(2),
+            Source::MidiCc => Source::Footswitch(11),
+            _ => continue,
+        };
+        assignment.cc = None;
+    }
+    app.assignments.extend(
+        more.into_iter()
+            .filter(|a| matches!(a.source, Source::Footswitch(2) | Source::Footswitch(11))),
+    );
+    // Its ten stomp switches, the three the Stomp scene names among them.
+    let named = std::mem::take(&mut app.switches);
+    app.switches = (1..=10)
+        .map(|switch| {
+            named
+                .iter()
+                .find(|s| s.switch == switch)
+                .cloned()
+                .unwrap_or(hx_usb::Switch {
+                    switch,
+                    momentary: false,
+                    label: None,
+                    colour: None,
+                    carries: Vec::new(),
+                })
+        })
+        .collect();
+}
+
 fn hx_stomp(app: &mut App) {
     use hx_proto::preset::{Assignment, Kind, Lane, Layout, Path, Target};
     use hx_proto::rpc::Source;

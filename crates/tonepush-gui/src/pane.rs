@@ -40,6 +40,8 @@ pub(crate) fn source_tag(source: Source) -> String {
     match source {
         Source::Footswitch(n) => format!("FS{n}"),
         Source::Expression(n) => format!("EXP {n}"),
+        Source::VariaxVolume => "Variax Vol".to_owned(),
+        Source::VariaxTone => "Variax Tone".to_owned(),
         Source::MidiCc => "MIDI".to_owned(),
         Source::Snapshots => "Snapshots".to_owned(),
     }
@@ -2114,8 +2116,19 @@ impl App {
 
     /// Every source the Footswitches lens lists, in the pedal's order.
     pub(crate) fn listed_sources(&self) -> Vec<Source> {
-        let mut sources: Vec<Source> = (1..=self.switch_count()).map(Source::Footswitch).collect();
-        sources.extend([Source::Expression(1), Source::Expression(2), Source::MidiCc]);
+        let controls = self.controls();
+        let mut sources: Vec<Source> = controls
+            .sources()
+            .into_iter()
+            .filter(|source| matches!(source, Source::Footswitch(_)))
+            .filter(|source| self.offers_switch(*source))
+            .collect();
+        sources.extend(controls.sources().into_iter().filter(|source| {
+            matches!(
+                source,
+                Source::Expression(_) | Source::VariaxVolume | Source::VariaxTone | Source::MidiCc
+            )
+        }));
         sources
     }
 
@@ -2187,6 +2200,7 @@ impl App {
             }
             Source::Expression(n) if self.carried_by(source).is_empty() => format!("EXP {n}"),
             Source::Expression(n) => format!("EXP {n} · heel to toe"),
+            Source::VariaxVolume | Source::VariaxTone => source_tag(source),
             Source::MidiCc => "MIDI".to_owned(),
             Source::Snapshots => "Snapshots".to_owned(),
         }
@@ -2237,6 +2251,7 @@ impl App {
                 .iter()
                 .any(|a| Self::auto_engage(a.source, a.target))
                 .then(|| "Auto on".to_owned()),
+            Source::VariaxVolume | Source::VariaxTone => None,
             Source::MidiCc => (!carried.is_empty()).then(|| "CC".to_owned()),
             Source::Snapshots => None,
         }
@@ -2446,7 +2461,7 @@ impl App {
                         Pos2::new(x, rect.top()),
                         Pos2::new(limit, rect.bottom()),
                     ))
-                    .id_salt(("source-mode", source.ordinal()))
+                    .id_salt(("source-mode", source))
                     .layout(egui::Layout::right_to_left(egui::Align::Center)),
             );
             theme::Chip::new(&mode).show(&mut child);
@@ -2547,6 +2562,7 @@ impl App {
             let what = match source {
                 Source::Footswitch(_) => "what your foot does",
                 Source::Expression(_) => "what the pedal sweeps",
+                Source::VariaxVolume | Source::VariaxTone => "what the guitar's knob turns",
                 Source::MidiCc => "what a controller sends",
                 Source::Snapshots => "",
             };
@@ -2807,6 +2823,7 @@ impl App {
             let words = match a.source {
                 Source::Footswitch(_) => ("switch off", "switch on"),
                 Source::Expression(_) => ("heel", "toe"),
+                Source::VariaxVolume | Source::VariaxTone => ("knob at 0", "knob at 10"),
                 Source::MidiCc => ("CC at 0", "CC at 127"),
                 Source::Snapshots => ("lowest", "highest"),
             };
@@ -3663,7 +3680,7 @@ impl App {
                         Pos2::new(left, switch.top()),
                         Pos2::new(right, switch.bottom()),
                     ))
-                    .id_salt(("card-mode", source.ordinal()))
+                    .id_salt(("card-mode", source))
                     .layout(egui::Layout::right_to_left(egui::Align::Center)),
             );
             theme::Chip::new(&mode).show(&mut child);
