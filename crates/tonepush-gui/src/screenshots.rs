@@ -2220,9 +2220,6 @@ fn backups_history(app: &mut App) {
     app.backup_shelf = Some(copies);
 }
 
-/// 01B Plexi Crunch on an HX Stomp: a wah under EXP 1, a drive on FS1, the
-/// amp selected, a Y split into two cabs, a tape delay the Solo snapshot turns
-/// on, and a reverb on FS3. Models are found by name in HX Edit's catalog.
 /// The HX Stomp scene's pedal as a Helix Floor: 128 presets and eight
 /// setlists, the loaded preset in the first.
 fn helix_floor(app: &mut App) {
@@ -2248,6 +2245,9 @@ fn helix_floor(app: &mut App) {
     app.loaded_setlist = 0;
 }
 
+/// 01B Plexi Crunch on an HX Stomp: a wah under EXP 1, a drive on FS1, the
+/// amp selected, a Y split into two cabs, a tape delay the Solo snapshot turns
+/// on, and a reverb on FS3. Models are found by name in HX Edit's catalog.
 fn hx_stomp(app: &mut App) {
     use hx_proto::preset::{Assignment, Kind, Lane, Layout, Path, Target};
     use hx_proto::rpc::Source;
