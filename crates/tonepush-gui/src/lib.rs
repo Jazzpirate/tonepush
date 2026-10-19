@@ -2610,6 +2610,9 @@ impl App {
             if self.setlist != self.loaded_setlist {
                 self.send(Cmd::SelectSetlist(self.loaded_setlist));
                 self.setlist = self.loaded_setlist;
+                // Set here, the worker's answer no longer looks like a change
+                // of setlist, so the library dots are rebuilt now.
+                self.refresh_mirror();
             }
             self.load_preset(self.preset_index);
         }
@@ -3391,6 +3394,7 @@ impl App {
     fn refresh_mirror(&mut self) {
         self.read_automatic_backup();
         let Some(dir) = session::automatic_dir() else {
+            self.mirror.clear();
             return;
         };
         self.mirror = hx_usb::backup::setlist_slot_files(&dir, self.setlist.max(0) as usize)
@@ -7649,9 +7653,16 @@ mod tests {
         assert_eq!(app.loaded_in_view(), None);
         assert!(app.hx_rows().iter().all(|row| !row.selected));
 
-        // Discarding changes reloads the loaded preset from its own setlist.
+        // Discarding changes reloads the loaded preset from its own setlist,
+        // and the library dots follow it there at once.
         app.dirty = true;
+        app.mirror.insert(5, "browsed".into());
         app.discard_changes();
+        assert_ne!(
+            app.mirror.get(&5).map(String::as_str),
+            Some("browsed"),
+            "the mirror is the loaded setlist's"
+        );
         assert!(matches!(cmds.try_recv(), Ok(Cmd::SelectSetlist(0))));
         assert!(matches!(cmds.try_recv(), Ok(Cmd::SelectPreset(5))));
         assert_eq!(app.loaded_in_view(), Some(5));

@@ -58,6 +58,10 @@ pub enum Cmd {
         index: i64,
         name: String,
     },
+    /// Rename the loaded preset, in whichever setlist holds it. The title
+    /// bar's rename, which must not land on the same index of a setlist that
+    /// is only being browsed.
+    RenameLoaded(String),
     MoveBlock {
         from: usize,
         to: usize,
@@ -1062,7 +1066,7 @@ impl Worker {
                     if let Some(names) = self.try_on_device(|d| d.presets(setlist)) {
                         self.send(Evt::Presets(names));
                     }
-                    if self.shown.index == index {
+                    if (self.shown.setlist, self.shown.index) == (setlist, index) {
                         self.reload();
                     }
                     self.send(Evt::Activity(format!("emptied {}", self.slot_label(index))));
@@ -1086,21 +1090,13 @@ impl Worker {
                 self.run_on_device(|d| d.select_snapshot(index));
                 self.reload();
             }
-            Cmd::Rename { index, name } => {
-                let setlist = self.setlist;
-                if self.run_on_device(|d| d.rename_preset(setlist, index, &name)) {
-                    // rename_preset paces the flash commit itself, so this list
-                    // read lands on a settled device. Crucially there is no
-                    // reload: a rename changes only a slot's label, never the
-                    // loaded document, and reloading here raced the commit - a
-                    // burst of renames stacking read-backs onto in-flight writes
-                    // is exactly what once wedged the pedal into a factory reset.
-                    if let Some(names) = self.try_on_device(|d| d.presets(setlist)) {
-                        self.send(Evt::Presets(names));
-                    }
-                    if self.shown.index == index {
-                        self.shown.name = name.clone();
-                    }
+            Cmd::Rename { index, name } => self.rename(self.setlist, index, &name),
+            Cmd::RenameLoaded(name) => {
+                // The loaded preset, wherever it is: the list may be showing
+                // another setlist, where the same index is somebody else's.
+                let (setlist, index) = (self.shown.setlist, self.shown.index);
+                if index >= 0 {
+                    self.rename(setlist, index, &name);
                 }
             }
             Cmd::MoveBlock { from, to } => {
@@ -1299,6 +1295,27 @@ impl Worker {
             self.send(Evt::Presets(names));
         }
         self.send_setlist();
+    }
+
+    fn rename(&mut self, setlist: i64, index: i64, name: &str) {
+        if self.run_on_device(|d| d.rename_preset(setlist, index, name)) {
+            // rename_preset paces the flash commit itself, so this list
+            // read lands on a settled device. Crucially there is no
+            // reload: a rename changes only a slot's label, never the
+            // loaded document, and reloading here raced the commit - a
+            // burst of renames stacking read-backs onto in-flight writes
+            // is exactly what once wedged the pedal into a factory reset.
+            // Only the list on screen is read again; another setlist's
+            // names are not what it shows.
+            if setlist == self.setlist {
+                if let Some(names) = self.try_on_device(|d| d.presets(setlist)) {
+                    self.send(Evt::Presets(names));
+                }
+            }
+            if (self.shown.setlist, self.shown.index) == (setlist, index) {
+                self.shown.name = name.to_owned();
+            }
+        }
     }
 
     /// Show another setlist's presets. Nothing on the pedal changes: the
@@ -2559,6 +2576,7 @@ fn ends_audition(cmd: &Cmd) -> bool {
             | Cmd::BackUp(_)
             | Cmd::RestoreAll(_)
             | Cmd::Rename { .. }
+            | Cmd::RenameLoaded(_)
             | Cmd::SelectPreset(_)
             | Cmd::Switch { .. }
             | Cmd::SelectSetlist(_)
@@ -3377,6 +3395,43 @@ mod tests {
         worker.handle(Cmd::SelectPreset(5));
         assert_eq!(setlists_asked(&pedal, op::SELECT_PRESET), [3]);
         assert_eq!(setlist_events(&events).last(), Some(&(3, 3)));
+    }
+
+    /// The title bar renames the loaded preset, not the slot with the same
+    /// number in a setlist that is only being browsed; and emptying that slot
+    /// leaves the loaded preset alone.
+    #[test]
+    fn renaming_and_emptying_while_browsing_reach_the_right_preset() {
+        let pedal = Pedal::new();
+        let (mut worker, _events) = worker(&pedal);
+        worker.handle(Cmd::SelectSetlist(3));
+
+        worker.handle(Cmd::RenameLoaded("Kept".into()));
+        assert_eq!(setlists_asked(&pedal, op::RENAME_PRESET), [0]);
+        assert_eq!(worker.shown.name, "Kept");
+
+        worker.handle(Cmd::Rename {
+            index: 2,
+            name: "Browsed".into(),
+        });
+        assert_eq!(setlists_asked(&pedal, op::RENAME_PRESET), [0, 3]);
+        assert_eq!(
+            worker.shown.name, "Kept",
+            "slot 2 of setlist 3 is not loaded"
+        );
+
+        let reads = |pedal: &Arc<Mutex<Pedal>>| {
+            pedal
+                .lock()
+                .unwrap()
+                .opcodes()
+                .iter()
+                .filter(|op| **op == op::READ_PRESET)
+                .count()
+        };
+        let before = reads(&pedal);
+        worker.handle(Cmd::ClearPreset(2));
+        assert_eq!(reads(&pedal), before, "the loaded preset was not emptied");
     }
 
     /// The pedal changing setlist by itself takes a list showing its old
