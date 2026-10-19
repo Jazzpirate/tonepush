@@ -367,6 +367,16 @@ parameter 0. `CT-Master Lead` has one assignment, on parameter 1:
 
 Its ends read 1 and 4, in that parameter's own units.
 
+**Key 41 inside key 6 says the index is a model setting, not a parameter.
+[confirmed]** A cab's Mic is one of the model's own settings (HX Edit's `@mic`,
+0 to 15), kept apart from its parameters. A Mic assigned on a Helix Floor reads
+`6: {28: 0, 29: 0, 41: true}`; the same cab's Distance, its first parameter, is
+`{28: 0, 29: 0, 41: false}`. Read by index alone, the Mic's assignment showed up
+on Distance. The parser now reads it as the Mic and leaves any other flagged
+index out. The request that makes an assignment probably carries the same flag
+as key 129, which TonePush always sends as false; that has not been tried, so the
+editor shows a Mic assignment but does not change it.
+
 **Key 5 is the block; the entry's own key 0 is not. [confirmed]** Key 0 is the
 assignment's place in that controller's table, and it equals the block often
 enough to look like one: in the sample above the wah's bypass sits at 1 and is

@@ -2773,7 +2773,7 @@ impl App {
         } else {
             match a.target {
                 Target::Bypass => "turns on and off".to_owned(),
-                Target::Param(_) => self.target_name(a.block, a.target),
+                Target::Param(_) | Target::Mic => self.target_name(a.block, a.target),
             }
         };
         let mut remove = false;
