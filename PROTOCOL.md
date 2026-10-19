@@ -359,7 +359,9 @@ switch 9 of a preset returned the name the pedal shows on the second switch of
 the lower row, and switch 11 the one on the fourth. Switches 6 and 12, Mode and
 Tap by default, read back empty. A block's bypass on a footswitch shows up in
 that switch's list rather than in the controller table, which is why no Floor
-preset had a bypass entry there. A Variax model
+preset had a bypass entry there. Writing them works the same way: a name, a red
+light and momentary set on FS4, and blocks' bypasses put on FS4 and FS11, all
+read back as written, survived a save and showed and behaved so on the pedal. A Variax model
 switched per snapshot is an assignment with neither a bypass (key 9) nor a
 parameter target (key 6): `{5: 0, 8: 45}`, shown by HX Edit as
 `variax/@variax_model`. The parser accepts these; naming them, and writing
