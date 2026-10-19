@@ -1291,10 +1291,10 @@ impl Worker {
         let names = self
             .try_on_device(|d| d.presets(setlist))
             .or_else(|| self.try_on_device(|d| d.presets(setlist)));
+        self.send_setlist();
         if let Some(names) = names {
             self.send(Evt::Presets(names));
         }
-        self.send_setlist();
     }
 
     fn rename(&mut self, setlist: i64, index: i64, name: &str) {
@@ -1324,11 +1324,18 @@ impl Worker {
         if setlist < 0 {
             return;
         }
-        if let Some(names) = self.try_on_device(|d| d.presets(setlist)) {
-            self.setlist = setlist;
-            self.send(Evt::Presets(names));
+        // Which setlist goes first: the editor takes a list for the loaded
+        // preset's own only when it knows that is what it is showing, and
+        // names arriving ahead of the change put a browsed slot's name in
+        // the title.
+        match self.try_on_device(|d| d.presets(setlist)) {
+            Some(names) => {
+                self.setlist = setlist;
+                self.send_setlist();
+                self.send(Evt::Presets(names));
+            }
+            None => self.send_setlist(),
         }
-        self.send_setlist();
     }
 
     fn send_setlist(&self) {
@@ -3390,7 +3397,23 @@ mod tests {
         worker.handle(Cmd::SelectSetlist(3));
         assert!(!pedal.lock().unwrap().opcodes().contains(&op::SELECT_PRESET));
         assert_eq!(setlists_asked(&pedal, op::LIST_PRESETS).last(), Some(&3));
-        assert_eq!(setlist_events(&events), [(3, 0)]);
+        // The change of setlist is said before the names it brings, or the
+        // editor reads them as the loaded preset's setlist.
+        let said: Vec<Evt> = events.try_iter().collect();
+        let setlist_at = said.iter().position(|e| {
+            matches!(
+                e,
+                Evt::Setlist {
+                    showing: 3,
+                    loaded: 0
+                }
+            )
+        });
+        let names_at = said.iter().position(|e| matches!(e, Evt::Presets(_)));
+        assert!(
+            setlist_at.is_some() && setlist_at < names_at,
+            "setlist first"
+        );
 
         worker.handle(Cmd::SelectPreset(5));
         assert_eq!(setlists_asked(&pedal, op::SELECT_PRESET), [3]);

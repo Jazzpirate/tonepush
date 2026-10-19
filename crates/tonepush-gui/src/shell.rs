@@ -2460,12 +2460,7 @@ impl App {
                                 true,
                                 "",
                             ) {
-                                // Browsing another setlist, no list comes
-                                // back with the new name for the title.
-                                if self.loaded_in_view().is_none() {
-                                    self.preset_name = name.clone();
-                                }
-                                self.send(Cmd::RenameLoaded(name));
+                                self.rename_loaded(name);
                             }
                         } else {
                             let title =

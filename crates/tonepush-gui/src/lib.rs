@@ -2593,6 +2593,18 @@ impl App {
         (self.preset_index >= 0 && self.setlist == self.loaded_setlist).then_some(self.preset_index)
     }
 
+    /// Rename the loaded preset from the title, in whichever setlist holds
+    /// it: the slot with the same number in a setlist only being browsed is
+    /// somebody else's.
+    fn rename_loaded(&mut self, name: String) {
+        // Browsing another setlist, no list comes back with the new name for
+        // the title.
+        if self.loaded_in_view().is_none() {
+            self.preset_name = name.clone();
+        }
+        self.send(Cmd::RenameLoaded(name));
+    }
+
     /// Show another of the pedal's setlists. The loaded preset stays loaded.
     pub(crate) fn show_setlist(&mut self, setlist: i64) {
         if setlist != self.setlist {
@@ -7652,6 +7664,24 @@ mod tests {
         assert_eq!(app.setlist, 2);
         assert_eq!(app.loaded_in_view(), None);
         assert!(app.hx_rows().iter().all(|row| !row.selected));
+
+        // The browsed setlist's names do not rename the loaded preset in the
+        // title, whatever its slot holds there.
+        app.preset_name = "Preset 5".into();
+        events
+            .send(Evt::Presets(
+                (0..8).map(|i| format!("Browsed {i}")).collect(),
+            ))
+            .unwrap();
+        app.drain_events();
+        assert_eq!(app.preset_name, "Preset 5");
+
+        // Renaming from the title names the loaded preset, not the browsed
+        // slot with its number, and the title shows the new name at once.
+        let _ = cmds.try_iter().count();
+        app.rename_loaded("Kept".into());
+        assert!(matches!(cmds.try_recv(), Ok(Cmd::RenameLoaded(name)) if name == "Kept"));
+        assert_eq!(app.preset_name, "Kept");
 
         // Discarding changes reloads the loaded preset from its own setlist,
         // and the library dots follow it there at once.
