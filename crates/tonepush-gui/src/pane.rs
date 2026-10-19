@@ -35,6 +35,18 @@ impl Lens {
     }
 }
 
+/// How to put something under a source that carries nothing yet, naming it
+/// the way the assignment menu lists it.
+pub(crate) fn assign_hint(source: Source, on_off: bool) -> String {
+    let what = if on_off {
+        "a knob or an on/off"
+    } else {
+        "a knob"
+    };
+    // Short enough that a footswitch board card still shows the whole name.
+    format!("Right-click {what}, choose {}", source.label())
+}
+
 /// What a tag says for a source, as the pedal prints it.
 pub(crate) fn source_tag(source: Source) -> String {
     match source {
@@ -2468,13 +2480,7 @@ impl App {
             limit = child.min_rect().left() - 10.0;
         }
         if empty {
-            let hint = match source {
-                Source::Footswitch(n) => {
-                    format!("Right-click a knob or an on/off and choose FS{n}")
-                }
-                Source::Expression(n) => format!("Right-click a knob and choose EXP {n}"),
-                _ => "Right-click a knob and choose MIDI".to_owned(),
-            };
+            let hint = assign_hint(source, matches!(source, Source::Footswitch(_)));
             let hint = shell::elided(
                 ui,
                 hint,
@@ -3709,11 +3715,7 @@ impl App {
         shell::paint_line(ui, second, left, switch.center().y + 9.0);
         let mut y = switch.bottom() + 5.0 + 10.0 + 11.0;
         if empty {
-            let hint = match source {
-                Source::Footswitch(n) => format!("Right-click a knob and choose FS{n}"),
-                Source::Expression(n) => format!("Right-click a knob and choose EXP {n}"),
-                _ => "Right-click a knob and choose MIDI".to_owned(),
-            };
+            let hint = assign_hint(source, false);
             let hint = shell::elided(
                 ui,
                 hint,
@@ -3846,6 +3848,28 @@ fn board_columns(cards: usize, available: f32, gap: f32) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The hint names the menu item to pick, for every source a device lists:
+    /// a Variax knob used to read "choose MIDI".
+    #[test]
+    fn an_empty_source_says_which_menu_item_to_choose() {
+        assert_eq!(
+            assign_hint(Source::VariaxVolume, false),
+            "Right-click a knob, choose Variax Volume"
+        );
+        assert_eq!(
+            assign_hint(Source::Expression(3), false),
+            "Right-click a knob, choose Expression Pedal 3"
+        );
+        assert_eq!(
+            assign_hint(Source::Footswitch(7), true),
+            "Right-click a knob or an on/off, choose Footswitch 7"
+        );
+        assert_eq!(
+            assign_hint(Source::MidiCc, false),
+            "Right-click a knob, choose MIDI CC"
+        );
+    }
 
     #[test]
     fn a_crowded_footswitch_board_wraps_rather_than_squeezing() {
