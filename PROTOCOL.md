@@ -340,10 +340,10 @@ fills in the rest: None, EXP Pedal 1–3, Variax Vol, Variax Tone, Footswitch
 | 19 | Snapshots |
 
 1, 2, 7–10, 13–16 and 19 are confirmed by presets. 3, 4, 12 and 18 are confirmed
-on the hardware: assignments TonePush made to EXP 3, Variax Vol and FS7 show on
-the Floor's own controller pages under those names, and a MIDI CC assignment
-made on the Floor's front panel is stored under 18. 5 (Variax Tone) rests on the
-menu order.
+on the hardware: assignments TonePush made to EXP 3, Variax Vol, Variax Tone
+and FS7 show on the Floor's own controller pages under those names, and a MIDI
+CC assignment made on the Floor's front panel is stored under 18. That covers 5
+as well, so every source the Floor offers is confirmed.
 
 **An assignment's target carries a flag at key 41.** The Floor's own Mic to EXP 3
 assignment on a cab is stored as `6: {28: 0, 29: 0, 41: true}`, travel 0 to 15;
