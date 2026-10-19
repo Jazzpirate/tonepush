@@ -837,29 +837,20 @@ impl Worker {
                     .slots
                     .get(at)
                     .is_some_and(|s| matches!(s.kind, Kind::Block | Kind::Empty));
-                let Some(bounds) =
-                    preset.lane_bounds(if holds_blocks { at } else { at.max(1) - 1 })
-                else {
+                if preset
+                    .lane_bounds(if holds_blocks { at } else { at.max(1) - 1 })
+                    .is_none()
+                {
                     return self.send(Evt::Failed("nothing can go there".into()));
+                }
+                // Between the blocks either side of the gap, sliding some along
+                // only when there is no free slot between them.
+                let Some(target) = preset.room_before(at) else {
+                    return self.send(Evt::Failed(
+                        "this row is full - remove a block first".into(),
+                    ));
                 };
-
-                let free_in_lane = |p: &hx_proto::Preset| {
-                    bounds
-                        .clone()
-                        .find(|i| p.slots.get(*i).is_some_and(|s| s.model.is_none()))
-                };
-                let target = if holds_blocks {
-                    at
-                } else {
-                    match free_in_lane(&preset) {
-                        Some(slot) => slot,
-                        None => {
-                            return self.send(Evt::Failed(
-                                "this row is full - remove a block first".into(),
-                            ))
-                        }
-                    }
-                };
+                let moved = preset.encode() != original;
 
                 // The first block on an empty branch should parallel the whole
                 // line: fork just after the input, merge just before the
@@ -882,15 +873,8 @@ impl Worker {
                     })
                     .and_then(|p| Some((p.split?, p.join?, p.input? + 1, p.output?)));
 
-                if preset.slots.get(target).is_some_and(|s| s.model.is_some()) {
-                    if !preset.make_room(target, bounds) {
-                        return self.send(Evt::Failed(
-                            "this row is full - remove a block first".into(),
-                        ));
-                    }
-                    if !self.run_on_device(|d| d.write_preset(&preset)) {
-                        return;
-                    }
+                if moved && !self.run_on_device(|d| d.write_preset(&preset)) {
+                    return;
                 }
 
                 if self.run_on_device(|d| place(d, target as i64, model, paired)) {
