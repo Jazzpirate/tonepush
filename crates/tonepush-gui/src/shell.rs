@@ -2510,6 +2510,8 @@ impl App {
     /// click to switch, right-click to rename. Called inside the deck's
     /// right-to-left layout.
     fn snapshot_switch(&mut self, ui: &mut Ui, tier: Tier) {
+        /// What the preset's slot and name keep beside the snapshots.
+        const TITLE_ROOM: f32 = 320.0;
         if let Some((index, draft)) = self.snapshot_draft.as_mut() {
             let index = *index;
             let edit = ui.add(egui::TextEdit::singleline(draft).desired_width(110.0));
@@ -2527,11 +2529,30 @@ impl App {
         }
         let names = self.snapshots.clone();
         let current = self.current_snapshot;
+        // Every name only when they fit beside the title. A Helix has eight
+        // snapshots, and spelled out they ran over the preset's name.
+        let spelled_out: f32 = names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| {
+                let width = |text: String, font| {
+                    ui.painter()
+                        .layout_no_wrap(text, font, Color32::PLACEHOLDER)
+                        .size()
+                        .x
+                };
+                20.0 + width(name.clone(), theme::medium(12.5))
+                    + width((index + 1).to_string(), theme::semibold(11.5))
+                    + 7.0
+                    + 2.0
+            })
+            .sum();
+        let numbers_only = tier == Tier::S || spelled_out > ui.available_width() - TITLE_ROOM;
         let segments: Vec<theme::Segment> = names
             .iter()
             .enumerate()
             .map(|(index, name)| {
-                let label = if tier == Tier::S && index != current {
+                let label = if numbers_only && index != current {
                     ""
                 } else {
                     name.as_str()
