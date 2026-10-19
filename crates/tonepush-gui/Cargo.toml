@@ -21,32 +21,32 @@ serde_json = "1"
 # tree builds for macOS, Windows, Linux and Android.
 # The winit backends are named features from 0.30 on: with default features off
 # and neither named, winit compiles for no platform at all and says so.
-eframe = { version = "0.36", default-features = false, features = [
+eframe = { version = "0.36.2", default-features = false, features = [
     "glow",
     "default_fonts",
     "links",
     "wayland",
     "x11",
 ] }
-egui = "0.36"
+egui = "0.36.2"
 # The shared foundation of the family's apps: Inter at the weights used here
 # with system fallbacks for other scripts, and the desktop's text rendering.
-fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.10.0" }
-fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.10.0" }
+fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.13.0" }
+fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.13.0" }
 # Colour emoji in the platform's own style (Apple Color Emoji, Segoe UI
 # Emoji, the desktop's colour emoji font), in every text through its egui
 # plugin. egui's bundled monochrome emoji face stays the fallback.
-fastframe-emoji = { git = "https://github.com/crmne/fastframe", tag = "v0.10.0" }
+fastframe-emoji = { git = "https://github.com/crmne/fastframe", tag = "v0.13.0" }
 # Self-update from GitHub releases: the daily check, refusing copies a package
 # manager owns, the signed download, and the helper that installs, relaunches
 # and rolls back. It talks through ureq below, so no second HTTP client.
-fastframe-update = { git = "https://github.com/crmne/fastframe", tag = "v0.10.0" }
+fastframe-update = { git = "https://github.com/crmne/fastframe", tag = "v0.13.0" }
 # Wheel notches of 120 points, and Linux touchpads scaled with a glide after
 # the fingers lift, as the other fastframe apps scroll.
-fastframe-scroll = { git = "https://github.com/crmne/fastframe", tag = "v0.10.0" }
+fastframe-scroll = { git = "https://github.com/crmne/fastframe", tag = "v0.13.0" }
 # The error type fastframe-update's transport returns.
 anyhow.workspace = true
-egui_extras = { version = "0.36", features = ["image", "file", "svg"] }
+egui_extras = { version = "0.36.2", features = ["image", "file", "svg"] }
 # Virtualised rows and sticky columns for the library table. egui_extras'
 # TableBuilder builds every row whether or not it is on screen, which a library
 # of a few thousand tones cannot afford.
@@ -68,7 +68,7 @@ jiff = "0.2"
 [dev-dependencies]
 # Renders the editor offscreen on the GPU for the design screenshots (see
 # `src/screenshots.rs`); never part of the shipped program.
-egui_kittest = { version = "0.36", features = ["wgpu"] }
+egui_kittest = { version = "0.36.2", features = ["wgpu"] }
 # Chooses the GPU that renderer runs on.
 egui-wgpu = "0.36"
 
