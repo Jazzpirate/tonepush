@@ -373,9 +373,10 @@ Its ends read 1 and 4, in that parameter's own units.
 `6: {28: 0, 29: 0, 41: true}`; the same cab's Distance, its first parameter, is
 `{28: 0, 29: 0, 41: false}`. Read by index alone, the Mic's assignment showed up
 on Distance. The parser now reads it as the Mic and leaves any other flagged
-index out. The request that makes an assignment probably carries the same flag
-as key 129, which TonePush always sends as false; that has not been tried, so the
-editor shows a Mic assignment but does not change it.
+index out. How the request that makes an assignment names a setting is not
+known: sending key 129 as true with index 0 put the assignment on Distance, as
+false does. So the editor shows a Mic assignment but does not change it; a
+capture of HX Edit assigning a Mic would settle it.
 
 **Key 5 is the block; the entry's own key 0 is not. [confirmed]** Key 0 is the
 assignment's place in that controller's table, and it equals the block often
