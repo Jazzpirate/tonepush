@@ -661,8 +661,9 @@ pub enum ControlLayout {
     Stomp,
     /// Three expression pedals, the Variax knobs at 4 and 5, footswitches 1
     /// to 12 at 6 to 17, MIDI CC at 18 and Snapshots at 19. Read off a Helix
-    /// Floor (3.80): its presets, HX Edit's backup of them, and the order of
-    /// its own controller menu (PROTOCOL.md).
+    /// Floor (3.80): its presets, HX Edit's backup of them, the order of its
+    /// own controller menu, and assignments checked on the pedal itself
+    /// (PROTOCOL.md).
     Helix,
 }
 

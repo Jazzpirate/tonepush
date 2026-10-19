@@ -339,8 +339,13 @@ fills in the rest: None, EXP Pedal 1–3, Variax Vol, Variax Tone, Footswitch
 | 18 | MIDI CC |
 | 19 | Snapshots |
 
-1, 2, 7–10, 13–16 and 19 are confirmed by presets; 3–5 and 18 rest on the menu
-order alone.
+1, 2, 7–10, 13–16 and 19 are confirmed by presets. 3, 4, 12 and 18 are confirmed
+on the hardware: assignments TonePush made to EXP 3, Variax Vol and FS7 show on
+the Floor's own controller pages under those names, and a MIDI CC assignment
+made on the Floor's front panel is stored under 18. 5 (Variax Tone) rests on the
+menu order. The Floor accepts an assignment over USB on a parameter its own
+pages offer no controller for, such as a cab's Mic, shows it as None, and drops
+it the next time the preset is saved on the pedal.
 
 Per-switch settings (name, light, latching, and what a switch turns on and off)
 are addressed by the Floor's own footswitch number, as on the Stomp: reading
