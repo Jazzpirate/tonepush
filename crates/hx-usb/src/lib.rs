@@ -1197,8 +1197,14 @@ impl Session {
     ///
     /// This is how HX Edit restores a backup and how it pastes or imports a
     /// preset: the document goes to the slot in one message, with no edit
-    /// buffer and no separate save. It is a flash write, so it is paced like
-    /// every other one - see `settle_flash`.
+    /// buffer and no separate save. It is sent as HX Edit sends it, with the
+    /// three fields that ride along, and like the edit buffer's write it is
+    /// deferred: the next operation waits for the device to announce the
+    /// commit. Sent bare and treated as done on the reply, the first write of
+    /// a copy on a Helix Floor (3.80) left the device answering nothing until
+    /// it was power cycled; sent this way, the same copy took 0.8 s and the
+    /// device carried on. It is a flash write, so it is still paced like every
+    /// other one - see `settle_flash`.
     ///
     /// The bytes go out **exactly as given**. [`write_preset`](Self::write_preset)
     /// settles empty branches first, because a non-zero attach over an empty
@@ -1217,13 +1223,16 @@ impl Session {
         non_negative(setlist, "setlist")?;
         preset_index(&self.profile, index)?;
         let document = validated_preset_document(preset)?;
-        self.request(
+        self.command_deferred(
             ChannelId::DATA,
             rpc::op::WRITE_SLOT_NAMED,
             hx_proto::msgmap! {
                 rpc::key::SETLIST => Value::Int(setlist),
                 rpc::key::PRESET_INDEX => Value::Int(index),
                 rpc::key::NAME => Value::Str(name.to_owned()),
+                rpc::key::ENTRY_FLAG_A => Value::Bool(false),
+                rpc::key::ENTRY_FLAG_B => Value::Bool(false),
+                rpc::key::ENTRY_COUNT => Value::Int(0),
                 rpc::key::DOCUMENT => Value::Bin(document, 2),
             },
         )?;
@@ -1233,10 +1242,12 @@ impl Session {
 
     /// Empty a slot, the way HX Edit's restore blanks the slots a backup holds
     /// nothing for.
+    ///
+    /// Waited on like a slot write, should the device defer it.
     pub fn clear_preset_at(&mut self, setlist: i64, index: i64) -> Result<()> {
         non_negative(setlist, "setlist")?;
         preset_index(&self.profile, index)?;
-        self.request(
+        self.command_deferred(
             ChannelId::DATA,
             rpc::op::CLEAR_SLOT,
             hx_proto::msgmap! {
@@ -1578,6 +1589,46 @@ mod tests {
         let write = opcodes
             .iter()
             .rposition(|&o| o == rpc::op::WRITE_PRESET)
+            .unwrap();
+        assert_eq!(
+            opcodes.get(write + 1),
+            Some(&rpc::op::PRESET_INFO),
+            "{opcodes:?}"
+        );
+    }
+
+    /// A slot write goes out as HX Edit sends it and waits for the device to
+    /// be done before anything else is asked. Sent bare and taken as done on
+    /// its reply, it wedged a Helix Floor on the first write.
+    #[test]
+    fn a_slot_write_waits_for_its_commit() {
+        let pedal = fake::Pedal::new();
+        let mut session = fake::session(&pedal);
+        let preset = session.read_preset().unwrap();
+        pedal.lock().unwrap().defers_writes = true;
+
+        session
+            .write_preset_at(3, 2, "Copy", &preset)
+            .expect("the write lands");
+
+        let pedal = pedal.lock().unwrap();
+        let (_, _, _, args) = pedal
+            .requests
+            .iter()
+            .rfind(|(_, _, opcode, _)| *opcode == rpc::op::WRITE_SLOT_NAMED)
+            .expect("a slot write");
+        assert_eq!(args.get(rpc::key::ENTRY_FLAG_A), Some(&Value::Bool(false)));
+        assert_eq!(args.get(rpc::key::ENTRY_FLAG_B), Some(&Value::Bool(false)));
+        assert_eq!(
+            args.get(rpc::key::ENTRY_COUNT).and_then(Value::as_i64),
+            Some(0)
+        );
+        // Nothing announced the commit, so the session asked whether the
+        // device was free before returning.
+        let opcodes = pedal.opcodes();
+        let write = opcodes
+            .iter()
+            .rposition(|&o| o == rpc::op::WRITE_SLOT_NAMED)
             .unwrap();
         assert_eq!(
             opcodes.get(write + 1),

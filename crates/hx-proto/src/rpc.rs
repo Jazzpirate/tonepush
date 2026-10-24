@@ -62,6 +62,13 @@ pub mod key {
     pub const PAIRED_MODEL: i64 = 26;
     /// Preset document on a write-preset request.
     pub const DOCUMENT: i64 = 110;
+    /// Three fields HX Edit sends with a named slot write and an IR upload,
+    /// and that preset list entries carry too: `false`, `false` and `0` in
+    /// every capture. **[inferred]** - their meaning is unknown, so they are
+    /// replayed as observed.
+    pub const ENTRY_FLAG_A: i64 = 123;
+    pub const ENTRY_FLAG_B: i64 = 124;
+    pub const ENTRY_COUNT: i64 = 125;
     /// Zero-based snapshot index.
     pub const SNAPSHOT: i64 = 92;
 

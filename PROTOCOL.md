@@ -715,6 +715,15 @@ Keys 123, 124 and 125 are not IR-specific - preset list entries carry the same
 trio (`false`, `false`, `0` everywhere so far); their meaning is untested but
 they echo back verbatim.
 
+**A named slot write is deferred, and goes out with that trio. [confirmed on a
+Helix Floor]** Opcode 8 was sent with only setlist, index, name and document,
+and its status-1 reply taken as done. On a Helix Floor (3.80) the first such
+write, a preset copied into an empty slot from the editor, never landed and
+left the device answering nothing until a power cycle. Sent as HX Edit sends it,
+with 123 `false`, 124 `false` and 125 `0`, and waited on like the edit buffer's
+write (notification 20, or the device answering again), the same copy took
+0.8 s and the device carried on. Which of the two changes matters is untested.
+
 Opcode 15 `{112: slot}` empties a slot.
 
 ### Writing a preset document back [confirmed]

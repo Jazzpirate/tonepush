@@ -231,6 +231,7 @@ impl Pedal {
                 self.irs.remove(&number(key::IR_SLOT));
                 (0, Value::Nil)
             }
+            op::WRITE_SLOT_NAMED | op::CLEAR_SLOT => (i64::from(self.defers_writes), Value::Nil),
             _ => (0, Value::Nil),
         }
     }
