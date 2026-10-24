@@ -764,18 +764,9 @@ impl Session {
             let before = self.rx_bytes(id);
             self.read_available(Self::REPLY_READ)?;
             let got = self.rx_bytes(id) != before;
-            let messages = self
-                .channels
-                .get_mut(&ChannelId::EVENTS.device)
-                .map(|ch| ch.reader.take_messages())
-                .transpose()
-                .map_err(|error| Error::Protocol(error.to_string()))?
-                .unwrap_or_default();
             let mut done = false;
-            for sm in messages {
-                if let Message::Notification { args, .. } = decode_message(sm.body)? {
-                    done |= completion_matches(&args, txn);
-                }
+            for (_, args) in self.take_notifications() {
+                done |= completion_matches(&args, txn);
             }
             if got {
                 self.ack_channel(id)?;
@@ -873,13 +864,41 @@ impl Session {
     /// Everything on the events channel so far, dropped unread. Only for just
     /// before a deferred request is sent: see `command_deferred`.
     fn forget_events(&mut self) -> Result<()> {
-        if let Some(events) = self.channels.get_mut(&ChannelId::EVENTS.device) {
-            events
-                .reader
-                .take_messages()
-                .map_err(|error| Error::Protocol(error.to_string()))?;
-        }
+        self.take_notifications();
         Ok(())
+    }
+
+    /// The notifications that have arrived whole on the events channel.
+    ///
+    /// Whatever there cannot be read is dropped rather than taken for a lost
+    /// session. Notifications only say that something changed, and the
+    /// editor asks again whenever it needs to know, so missing one costs
+    /// little - while a session given up over one cost a great deal: a Helix
+    /// Floor (3.80) flooded with notifications by a whole-pedal backup sent
+    /// one with the first four bytes of its header moved behind its body,
+    /// the editor dropped the session mid-write over it, and reconnecting
+    /// wedged the device until a power cycle. The reader starts again at the
+    /// next message that reads.
+    fn take_notifications(&mut self) -> Vec<(i64, Value)> {
+        let Some(events) = self.channels.get_mut(&ChannelId::EVENTS.device) else {
+            return Vec::new();
+        };
+        let messages = match events.reader.take_messages() {
+            Ok(messages) => messages,
+            Err(error) => {
+                if debug() {
+                    eprintln!("dropped unreadable notifications: {error}");
+                }
+                Vec::new()
+            }
+        };
+        messages
+            .into_iter()
+            .filter_map(|sm| match decode_message(sm.body) {
+                Ok(Message::Notification { event, args }) => Some((event, args)),
+                _ => None,
+            })
+            .collect()
     }
 
     /// [`request_raw`](Self::request_raw), running `ready` once the device's
@@ -1584,6 +1603,33 @@ mod tests {
             Some(&rpc::op::PRESET_INFO),
             "{opcodes:?}"
         );
+    }
+
+    /// A scrambled notification is dropped, not taken for a lost session:
+    /// over one, the editor once gave up on a Helix Floor mid-write, and the
+    /// reconnect wedged the device. What follows it is still read.
+    #[test]
+    fn a_scrambled_notification_costs_only_itself() {
+        let pedal = fake::Pedal::new();
+        let mut session = fake::session(&pedal);
+        let tick = || hx_proto::msgmap! { 82 => Value::Int(0), 68 => Value::Int(10) };
+        pedal.lock().unwrap().notify_scrambled(22, tick());
+        assert!(
+            session.poll_notifications().is_ok(),
+            "the session carries on"
+        );
+        pedal.lock().unwrap().notify(1, tick());
+        let events = session.poll_notifications().expect("still reading");
+        assert!(
+            events.iter().any(|(event, _)| *event == 1),
+            "the next notification arrives: {events:?}"
+        );
+        // And a write after one still lands.
+        let preset = session.read_preset().unwrap();
+        pedal.lock().unwrap().notify_scrambled(22, tick());
+        session
+            .write_preset_at(3, 2, "Copy", &preset)
+            .expect("the write lands");
     }
 
     /// A timed-out write may or may not have reached the device, even one

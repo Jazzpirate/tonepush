@@ -141,6 +141,18 @@ untouched, three minutes of `watch`: 195 notifications and then silence before
 (195 ticks of 21 bytes is 4095 bytes), 1095 and still flowing after. The device
 tests do not cover this; `fake::Pedal::events_window` models it.
 
+**A flood of notifications can arrive scrambled. [confirmed on a Helix Floor]**
+A whole-pedal backup on a Helix Floor (3.80) is followed by a few hundred
+notifications on the events channel, event 22 `{82: 0, 68: 10, 121: 27}` over
+and over, 21 bytes each. Among them, one arrived with the first four bytes of
+its stream header (`00 00 04 00`) after its body instead of before it: every
+byte present, frame sequence numbers in order, the stream out of step from
+there. A client that treats an unreadable events stream as a lost session
+drops it, and reconnecting then wedged the device until a power cycle; this is
+what made a preset copy right after connecting fail twice. Dropping what cannot
+be read and carrying on at the next message that reads keeps the session: the
+same backup, then a slot write, landed with ten such chunks dropped.
+
 Two things that look like fixes and are not:
 
 - **Acknowledging the channel a reply just arrived on, before returning.** The
