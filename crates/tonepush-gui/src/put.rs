@@ -70,6 +70,9 @@ pub(crate) struct Asking {
     pub back_up_first: bool,
     /// A move: the slot it came from, emptied once it is written.
     pub clears: Option<i64>,
+    /// A preset moving from one slot to another, the ones between closing
+    /// up: every write is one of the presets already on the pedal.
+    pub reorder: Option<(i64, i64)>,
 }
 
 /// How the question was answered.
@@ -213,7 +216,7 @@ impl App {
     }
 
     /// The slot the pedal has loaded, as an index.
-    fn loaded_slot_index(&self) -> Option<i64> {
+    pub(crate) fn loaded_slot_index(&self) -> Option<i64> {
         if self.pro_active() {
             self.pro.loaded_slot().map(|slot| slot as i64)
         } else {
@@ -260,6 +263,7 @@ impl App {
                 beside: (sending.tones.len() == 1).then_some(slot),
                 back_up_first,
                 clears: None,
+                reorder: None,
             });
         } else {
             self.write_puts(writes);
@@ -302,6 +306,7 @@ impl App {
                 beside: Some(slot),
                 back_up_first,
                 clears,
+                reorder: None,
             });
         } else {
             self.write_puts(vec![write]);
@@ -561,9 +566,14 @@ impl App {
                 let close = shown.should_close();
                 (shown.inner, close)
             }
-            None => theme::dialog(ctx, "put-question-several", 500.0, |ui| {
-                self.several_puts(ui, &asking, backup.as_deref(), leaves.as_ref())
-            }),
+            None => match asking.reorder {
+                Some((from, to)) => theme::dialog(ctx, "put-question-reorder", 460.0, |ui| {
+                    self.reorder_question(ui, &asking, backup.as_deref(), from, to)
+                }),
+                None => theme::dialog(ctx, "put-question-several", 500.0, |ui| {
+                    self.several_puts(ui, &asking, backup.as_deref(), leaves.as_ref())
+                }),
+            },
         };
         let answer = match (answer, close, enter) {
             (Some(answer), ..) => Some(answer),
@@ -574,7 +584,9 @@ impl App {
         match answer {
             Some(Answer::Put) => {
                 self.put_question = None;
-                if asking.back_up_first {
+                if let Some((from, to)) = asking.reorder {
+                    self.write_reorder(asking.writes, from, to);
+                } else if asking.back_up_first {
                     self.put_after_backup = Some(asking.writes);
                     self.pro.back_up_here();
                 } else {
@@ -695,6 +707,104 @@ impl App {
                 answer = Some(Answer::Cancel);
             }
         });
+        answer
+    }
+
+    /// A move's question: where the preset goes, which presets shift and
+    /// which way, and that nothing is replaced.
+    fn reorder_question(
+        &self,
+        ui: &mut Ui,
+        asking: &Asking,
+        backup: Option<&str>,
+        from: i64,
+        to: i64,
+    ) -> Option<Answer> {
+        let name = asking
+            .writes
+            .iter()
+            .find(|write| write.slot == to)
+            .map(|write| write.name.clone())
+            .unwrap_or_default();
+        let (first, last) = if from < to {
+            (from + 1, to)
+        } else {
+            (to, from - 1)
+        };
+        let shifted = (to - from).abs();
+        let shifts = if shifted == 1 {
+            format!(
+                "The preset in {} moves {} one slot.",
+                self.active_slot_label(first),
+                if from < to { "up" } else { "down" }
+            )
+        } else {
+            format!(
+                "The {shifted} presets from {} to {} each move {} one slot, in the same order.",
+                self.active_slot_label(first),
+                self.active_slot_label(last),
+                if from < to { "up" } else { "down" }
+            )
+        };
+        theme::dialog_header(
+            ui,
+            &format!(
+                "Move {} {name} to {}?",
+                self.active_slot_label(from),
+                self.active_slot_label(to)
+            ),
+            Some(&format!("{shifts} Nothing is replaced.")),
+        );
+        let mut note = match backup {
+            Some(time) => {
+                format!("If writing stops partway, every preset is still in the {time} backup.")
+            }
+            None => String::new(),
+        };
+        if let Some(loaded) = self.loaded_slot_index() {
+            let now = crate::reorder::moved(loaded, from, to);
+            if now != loaded {
+                if !note.is_empty() {
+                    note.push(' ');
+                }
+                note.push_str(&format!(
+                    "{} keeps playing, from {}.",
+                    self.preset_name.trim(),
+                    self.active_slot_label(now)
+                ));
+            }
+        }
+        if !note.is_empty() {
+            theme::dialog_body(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    let (spot, _) = ui.allocate_exact_size(Vec2::splat(14.0), Sense::hover());
+                    theme::paint_icon(ui, Icon::ShieldCheck, spot.center(), 13.0, theme::muted());
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(note)
+                                .font(theme::regular(12.5))
+                                .color(theme::text_soft()),
+                        )
+                        .wrap(),
+                    );
+                });
+            });
+        }
+        let count = asking.writes.len();
+        let mut answer = None;
+        theme::dialog_footer(
+            ui,
+            &format!("{} writes to the pedal's memory.", words_for(count)),
+            |ui| {
+                if theme::Button::new("Move it").primary().show(ui).clicked() {
+                    answer = Some(Answer::Put);
+                }
+                if theme::Button::new("Cancel").show(ui).clicked() {
+                    answer = Some(Answer::Cancel);
+                }
+            },
+        );
         answer
     }
 

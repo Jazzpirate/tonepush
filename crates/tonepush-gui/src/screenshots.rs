@@ -461,6 +461,7 @@ impl Scene {
                     beside: Some(13),
                     back_up_first: false,
                     clears: None,
+                    reorder: None,
                 });
             }
             Scene::HxPutSeveral => {
@@ -489,6 +490,7 @@ impl Scene {
                     beside: None,
                     back_up_first: false,
                     clears: None,
+                    reorder: None,
                 });
             }
             Scene::ProReadOnlyKeep => {
