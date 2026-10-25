@@ -63,7 +63,8 @@ USB access rule, and HX Edit's data. While that page is open it checks USB
 every two seconds, listing devices without opening any, so a pedal plugged in
 later, or one another editor lets go of, connects by itself. A pedal you let go
 of in TonePush is left alone until you unplug it or press **Look again**, which
-looks at once. Your library is one click away.
+looks at once. A StompStation PRO that is plugged in but cannot be opened is
+marked as found, with the error that stopped it. Your library is one click away.
 
 Once a pedal is connected, the sidebar on the left is the pedal: its card at
 the top, with its name and firmware, then its presets in its own banks. Across
