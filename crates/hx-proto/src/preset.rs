@@ -54,6 +54,9 @@ pub enum Target {
     Bypass,
     /// One of its parameters, by index.
     Param(i64),
+    /// A cab's microphone: one of the model's own settings (HX Edit's `@mic`)
+    /// rather than one of its parameters, so it has no index among them.
+    Mic,
 }
 
 /// Where each part of the signal path lives in the slot array.
@@ -362,6 +365,18 @@ mod key {
     /// was drawn as owning the Drive knob. Confirmed by dumping key 4 of a
     /// preset whose only assignment is on parameter 1: `6: {28: 0, 29: 1}`.
     pub const ASSIGNED_PARAM: i64 = 29;
+    /// Inside the target, set when the index names one of the model's own
+    /// settings (HX Edit's `@` names) instead of a parameter. **[confirmed]**
+    /// A cab's Mic assigned on a Helix Floor is `{28: 0, 29: 0, 41: true}`,
+    /// travel 0 to 15 as `@mic` has, while `{28: 0, 29: 0, 41: false}` is the
+    /// same cab's Distance. Reading the index alone put the Mic on Distance.
+    pub const ASSIGNED_SETTING: i64 = 41;
+
+    /// What an assignment that drives no block parameter points at instead.
+    /// Seen on a Helix Floor (3.80): a Variax model switched per snapshot,
+    /// which HX Edit shows as `variax/@variax_model` and the document holds as
+    /// `{5: 0, 8: 45}` with neither a bypass nor a parameter target.
+    pub const ASSIGNED_GLOBAL: i64 = 8;
 
     /// What the footswitches act on, as an array indexed by the switch's
     /// ordinal the way [`ASSIGNMENTS`] is. **[confirmed]** on a Helix Floor,
@@ -387,8 +402,16 @@ mod key {
     pub const SNAPSHOT_SLOTS: i64 = 3;
     /// The snapshot's own tempo.
     pub const SNAPSHOT_TEMPO: i64 = 5;
-    /// Whether the name was typed rather than left as "SNAPSHOT 1".
+    /// A flag the device sets when a snapshot is changed on it. Read as "the
+    /// name was typed" for a long time, but on a Helix Floor (firmware 3.80)
+    /// typed names arrive with it off, and renaming or recolouring a snapshot
+    /// on the pedal turns it on.
     pub const SNAPSHOT_NAMED: i64 = 14;
+    /// The snapshot's colour: an index into HX Edit's `footswitchLED` list, 0
+    /// for Auto Color, 1 White, 2 Red, up to 11 Off. Confirmed on a Helix
+    /// Floor, firmware 3.80, by recolouring snapshots on the pedal and reading
+    /// the preset back.
+    pub const SNAPSHOT_COLOUR: i64 = 12;
 }
 
 /// One snapshot: a remembered set of bypass states, with its own name and tempo.
@@ -401,6 +424,9 @@ pub struct Snapshot {
     pub named: bool,
     /// Whether each slot was on, indexed the same as [`Preset::slots`].
     pub enabled: Vec<Option<bool>>,
+    /// Its colour, as an index into HX Edit's `footswitchLED` list, where the
+    /// document carries one.
+    pub colour: Option<i64>,
 }
 
 impl Preset {
@@ -786,6 +812,38 @@ impl Preset {
         true
     }
 
+    /// Give a snapshot a colour, by its index in HX Edit's `footswitchLED`
+    /// list (0 Auto Color to 11 Off).
+    ///
+    /// Only a snapshot that already carries a colour takes one: the field's
+    /// place in a document without it is unknown. The changed flag (key 14)
+    /// is set as well, as the pedal sets it when a snapshot is recoloured on
+    /// it.
+    pub fn set_snapshot_colour(&mut self, index: usize, colour: i64) -> bool {
+        let Ok(colour) = u64::try_from(colour) else {
+            return false;
+        };
+        if colour > 11 {
+            return false;
+        }
+        let Some(entry) = self.snapshot_entry_mut(index) else {
+            return false;
+        };
+        let Some(slot) = entry.get_mut(key::SNAPSHOT_COLOUR) else {
+            return false;
+        };
+        *slot = match slot {
+            Value::Wide(_, width) => Value::Wide(colour, *width),
+            Value::WideInt(_, width) => Value::WideInt(colour as i64, *width),
+            Value::Int(_) | Value::UInt(_) => Value::UInt(colour),
+            _ => return false,
+        };
+        if let Some(changed) = entry.get_mut(key::SNAPSHOT_NAMED) {
+            *changed = Value::Bool(true);
+        }
+        true
+    }
+
     fn snapshot_entry_mut(&mut self, index: usize) -> Option<&mut Value> {
         match self.tone.at_mut(&[key::SNAPSHOT_SECTION, key::SNAPSHOTS]) {
             Some(Value::Array(entries)) => entries.get_mut(index),
@@ -809,8 +867,9 @@ impl Preset {
     ///
     /// The shape: top-level key 4 is an array indexed by source ordinal, so
     /// entry 1 is everything Expression Pedal 1 drives. Each item pairs a block
-    /// with the assignment itself.
-    pub fn assignments(&self) -> Vec<Assignment> {
+    /// with the assignment itself. Which source an ordinal is depends on the
+    /// device, so the caller says whose numbering the document uses.
+    pub fn assignments(&self, layout: crate::rpc::ControlLayout) -> Vec<Assignment> {
         let Some(Value::Array(by_source)) = self.tone.get(key::ASSIGNMENTS) else {
             return Vec::new();
         };
@@ -820,7 +879,7 @@ impl Preset {
                 continue;
             };
             // Slot 0 is the "nothing" ordinal and holds nothing to draw.
-            let Some(source) = crate::rpc::Source::from_ordinal(ordinal as i64) else {
+            let Some(source) = layout.source(ordinal as i64) else {
                 continue;
             };
             for entry in entries {
@@ -843,15 +902,24 @@ impl Preset {
                 let target = if what.get(key::ASSIGNED_BYPASS).is_some() {
                     Target::Bypass
                 } else {
-                    match what
-                        .get(key::ASSIGNED_TARGET)
-                        .and_then(|t| t.get(key::ASSIGNED_PARAM))
-                        .and_then(Value::as_i64)
-                    {
-                        Some(param) => Target::Param(param),
+                    let pointed = what.get(key::ASSIGNED_TARGET);
+                    let setting = matches!(
+                        pointed.and_then(|t| t.get(key::ASSIGNED_SETTING)),
+                        Some(Value::Bool(true))
+                    );
+                    match (
+                        pointed
+                            .and_then(|t| t.get(key::ASSIGNED_PARAM))
+                            .and_then(Value::as_i64),
+                        setting,
+                    ) {
+                        (Some(param), false) => Target::Param(param),
+                        // The first of a model's own settings: a cab's Mic,
+                        // the only one seen under a controller.
+                        (Some(0), true) => Target::Mic,
                         // Pointing at nothing we can name. Better left out
-                        // than shown as parameter zero.
-                        None => continue,
+                        // than shown as some parameter it is not.
+                        _ => continue,
                     }
                 };
                 // Under MIDI, key 1 is the CC number - for a parameter as much
@@ -933,6 +1001,7 @@ impl Preset {
                 }),
                 valid: matches!(e.get(key::SNAPSHOT_VALID), Some(Value::Bool(true))),
                 named: matches!(e.get(key::SNAPSHOT_NAMED), Some(Value::Bool(true))),
+                colour: e.get(key::SNAPSHOT_COLOUR).and_then(Value::as_i64),
                 enabled: match e.get(key::SNAPSHOT_SLOTS) {
                     Some(Value::Array(slots)) => slots
                         .iter()
@@ -1213,10 +1282,11 @@ impl Preset {
         let tone_at = magic.len() + table_hdr + table_len;
 
         let tone = Encoder::encode(&self.tone);
-        let total = tone_at + tone.len();
 
-        // Walk the tone's top-level map recording where each key begins.
+        // Walk the tone's top-level map recording where each key begins and
+        // ends.
         let mut key_at = std::collections::HashMap::new();
+        let mut key_end = std::collections::HashMap::new();
         let (count, mut at) = match tone.as_slice() {
             [b @ 0x80..=0x8f, ..] => ((b & 0x0f) as usize, 1),
             [0xde, high, low, ..] => (u16::from_be_bytes([*high, *low]) as usize, 3),
@@ -1232,7 +1302,14 @@ impl Preset {
             dv.value().ok()?;
             at = tone.len() - dv.remaining();
             key_at.insert(key, tone_at + here);
+            key_end.insert(key, tone_at + at);
         }
+        // The two trailing words mark where the snapshot section ends. That
+        // is the end of the document on an HX Stomp, whose tone stops there,
+        // but the preset a Helix Floor (3.80) has loaded follows it with a
+        // section 12 that the table leaves out. Its stored presets do not
+        // carry one.
+        let snapshots_end = *key_end.get(&key::SNAPSHOT_SECTION)?;
 
         let mut out = Vec::with_capacity(table_len);
         out.extend_from_slice(&section_word(tone_at)?);
@@ -1240,7 +1317,7 @@ impl Preset {
             out.extend_from_slice(&section_word(*key_at.get(&key)?)?);
         }
         for _ in 0..tail {
-            out.extend_from_slice(&section_word(total)?);
+            out.extend_from_slice(&section_word(snapshots_end)?);
         }
         Some(out)
     }
@@ -1420,7 +1497,7 @@ impl Preset {
         // Put the name back without marking it as typed: paste keeps the
         // label, it does not rename.
         if let Some(slot) = existing.get_mut(key::SNAPSHOT_NAME) {
-            if snapshot_name_is_valid(&name) {
+            if name.is_empty() || snapshot_name_is_valid(&name) {
                 *slot = Value::Str(name);
             }
         }
@@ -1552,9 +1629,11 @@ fn assignments_are_well_formed(tone: &Value) -> bool {
             Value::Array(entries) => entries,
             _ => return false,
         };
-        // HX Effects has six footswitches, so its list runs one longer than the
-        // ordinals `Source` knows: 10 is in use there, apparently for Snapshots.
-        if !entries.is_empty() && !(1..=10).contains(&ordinal) {
+        // How many sources there are is the device's business: HX Effects
+        // has six footswitches and uses 10, and a Helix Floor (3.80) lists 20
+        // and uses up to 19 (Snapshots). Only ordinal 0, "nothing", is never
+        // a source.
+        if !entries.is_empty() && ordinal == 0 {
             return false;
         }
         entries.iter().all(|entry| {
@@ -1565,13 +1644,19 @@ fn assignments_are_well_formed(tone: &Value) -> bool {
                 .get(key::ASSIGNED_ON)
                 .and_then(Value::as_i64)
                 .is_some_and(|block| block >= 0);
-            let valid_target = match what.get(key::ASSIGNED_BYPASS) {
-                Some(bypass) => bypass.as_i64().is_some_and(|target| target >= 0),
-                None => what
-                    .get(key::ASSIGNED_TARGET)
-                    .and_then(|target| target.get(key::ASSIGNED_PARAM))
+            let valid_target = match (
+                what.get(key::ASSIGNED_BYPASS),
+                what.get(key::ASSIGNED_TARGET),
+            ) {
+                (Some(bypass), _) => bypass.as_i64().is_some_and(|target| target >= 0),
+                (None, Some(target)) => target
+                    .get(key::ASSIGNED_PARAM)
                     .and_then(Value::as_i64)
                     .is_some_and(|parameter| parameter >= 0),
+                (None, None) => what
+                    .get(key::ASSIGNED_GLOBAL)
+                    .and_then(Value::as_i64)
+                    .is_some_and(|setting| setting >= 0),
             };
             let valid_ends = [key::ASSIGNED_MIN, key::ASSIGNED_MAX]
                 .into_iter()
@@ -1614,10 +1699,13 @@ fn snapshot_is_well_formed(entry: &Value, slot_count: usize) -> bool {
     if !matches!(entry, Value::Map(_)) {
         return false;
     }
+    // A name cleared on the device reads back empty, with the named flag still
+    // set. Seen on hardware, a Helix Floor on firmware 3.80, in 74 of 231
+    // presets; refusing it made every such preset unreadable.
     let valid_name = entry
         .get(key::SNAPSHOT_NAME)
         .and_then(Value::as_str)
-        .is_some_and(|name| !name.is_empty());
+        .is_some();
     let valid_tempo = entry
         .get(key::SNAPSHOT_TEMPO)
         .is_some_and(tempo_is_well_formed);
@@ -1991,7 +2079,7 @@ mod tests {
             },
         };
 
-        let found = preset.assignments();
+        let found = preset.assignments(crate::rpc::ControlLayout::Stomp);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].target, Target::Param(1), "key 29, not key 28");
         assert_eq!(found[0].block, 3);
@@ -2046,7 +2134,7 @@ mod tests {
         };
 
         for cc in [0, 4, 42, 77, 127] {
-            let found = preset(cc).assignments();
+            let found = preset(cc).assignments(crate::rpc::ControlLayout::Stomp);
             assert_eq!(found.len(), 1, "a bypass on CC {cc} went missing");
             assert_eq!(found[0].target, Target::Bypass);
             assert_eq!(found[0].block, 2);
@@ -2084,7 +2172,7 @@ mod tests {
                 ]),
             },
         };
-        let found = preset.assignments();
+        let found = preset.assignments(crate::rpc::ControlLayout::Stomp);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].target, Target::Param(0));
         assert_eq!(
@@ -2138,7 +2226,7 @@ mod tests {
         };
 
         for cc in [4, 42, 43, 77] {
-            let found = under_midi(cc).assignments();
+            let found = under_midi(cc).assignments(crate::rpc::ControlLayout::Stomp);
             assert_eq!(found.len(), 1, "the assignment on CC {cc} went missing");
             assert_eq!(found[0].target, Target::Param(1));
             assert_eq!(found[0].block, 5);
@@ -3258,6 +3346,60 @@ mod tests {
     }
 
     #[test]
+    fn a_snapshot_whose_name_was_cleared_parses_and_keeps_it() {
+        let mut preset = Preset::parse(&dual_dsp_fixture()).unwrap();
+        preset.set_snapshot_name(0, "Verse");
+        let Some(Value::Array(entries)) =
+            preset.tone.at_mut(&[key::SNAPSHOT_SECTION, key::SNAPSHOTS])
+        else {
+            panic!("snapshots");
+        };
+        // What a Helix Floor sends for a snapshot whose name was cleared.
+        *entries[1].get_mut(key::SNAPSHOT_NAME).unwrap() = Value::Str(String::new());
+        *entries[1].get_mut(key::SNAPSHOT_NAMED).unwrap() = Value::Bool(true);
+        let document = preset.encode();
+
+        let mut parsed = Preset::parse(&document).expect("a cleared snapshot name parses");
+        assert_eq!(parsed.encode(), document, "and round-trips byte for byte");
+        assert_eq!(parsed.snapshots()[1], "");
+
+        // Pasting over it keeps the blank name, as it keeps any other.
+        let verse = parsed.copy_snapshot(0).unwrap();
+        assert!(parsed.paste_snapshot(1, &verse));
+        assert_eq!(parsed.snapshots()[1], "");
+
+        // Typing an empty name is still refused.
+        assert!(!parsed.set_snapshot_name(0, ""));
+    }
+
+    #[test]
+    fn the_section_table_ends_at_the_snapshots_not_at_a_section_after_them() {
+        let mut preset = Preset::parse(FIXTURE).unwrap();
+        let Value::Map(fields) = &mut preset.tone else {
+            panic!("tone map");
+        };
+        // A loaded Helix Floor preset carries a section 12 after the
+        // snapshots, which the table does not cover.
+        fields.push((
+            crate::msgpack::Key::Int(12),
+            crate::msgmap! { 0 => Value::Int(1) },
+        ));
+        let document = preset.encode();
+        let section_12 = Encoder::encode(&Value::Int(12)).len()
+            + Encoder::encode(&crate::msgmap! { 0 => Value::Int(1) }).len();
+
+        let parsed = Preset::parse(&document).expect("a document with section 12 parses");
+        assert_eq!(parsed.encode(), document);
+        let words: Vec<usize> = parsed
+            .sections
+            .chunks(4)
+            .map(|word| u32::from_le_bytes(word.try_into().unwrap()) as usize)
+            .collect();
+        let end = document.len() - section_12;
+        assert_eq!(words[words.len() - 2..], [end, end]);
+    }
+
+    #[test]
     fn a_snapshot_with_the_wrong_slot_count_cannot_be_pasted() {
         let mut preset = Preset::parse(FIXTURE).unwrap();
         let mut snapshot = preset.copy_snapshot(0).unwrap();
@@ -3274,6 +3416,49 @@ mod tests {
     #[test]
     fn rejects_a_blob_that_is_not_a_preset() {
         assert!(Preset::parse(b"\xa3abc").is_none());
+    }
+
+    /// A cab's Mic assigned on a Helix Floor points at index 0 with the
+    /// setting flag up; Distance is index 0 without it. Read by index alone,
+    /// the Mic's assignment showed up on Distance.
+    #[test]
+    fn a_model_setting_under_a_controller_is_not_read_as_a_parameter() {
+        let document = |target: Value| {
+            let mut preset = Preset::parse(&sample()).unwrap();
+            let entry = crate::msgmap! {
+                0 => Value::Int(0),
+                key::ASSIGNED_WHAT => crate::msgmap! {
+                    key::ASSIGNED_KIND => Value::Int(0),
+                    key::ASSIGNED_MIN => Value::Int(0),
+                    key::ASSIGNED_MAX => Value::Int(15),
+                    key::ASSIGNED_ON => Value::Int(4),
+                    key::ASSIGNED_TARGET => target,
+                },
+            };
+            *preset.tone.get_mut(key::ASSIGNMENTS).unwrap() =
+                Value::Array(vec![Value::Nil, Value::Array(vec![entry])]);
+            Preset::parse(&preset.encode()).expect("parses")
+        };
+        let target = |param: i64, setting: bool| {
+            crate::msgmap! {
+                28 => Value::Int(0),
+                key::ASSIGNED_PARAM => Value::Int(param),
+                key::ASSIGNED_SETTING => Value::Bool(setting),
+            }
+        };
+
+        let mic = document(target(0, true)).assignments(crate::rpc::ControlLayout::Stomp);
+        assert_eq!(mic.len(), 1);
+        assert_eq!(mic[0].target, Target::Mic);
+
+        let distance = document(target(0, false)).assignments(crate::rpc::ControlLayout::Stomp);
+        assert_eq!(distance[0].target, Target::Param(0));
+
+        // A setting other than the Mic has never been seen; it is left out
+        // rather than shown as a parameter it is not.
+        assert!(document(target(2, true))
+            .assignments(crate::rpc::ControlLayout::Stomp)
+            .is_empty());
     }
 
     #[test]
@@ -3322,7 +3507,10 @@ mod tests {
             },
         };
         let parsed = Preset::parse(&document(under_footswitch(entry(reversed_switch)))).unwrap();
-        let assignment = parsed.assignments().pop().unwrap();
+        let assignment = parsed
+            .assignments(crate::rpc::ControlLayout::Stomp)
+            .pop()
+            .unwrap();
         assert_eq!((assignment.min, assignment.max), (1.0, 0.0));
 
         let missing_target = crate::msgmap! {
@@ -3341,7 +3529,7 @@ mod tests {
         by_source[8] = Value::Array(vec![entry(midi)]);
         assert!(Preset::parse(&document(Value::Array(by_source))).is_none());
 
-        // HX Effects uses ordinal 10; nothing uses 11.
+        // HX Effects uses ordinal 10, and a Helix Floor up to 19.
         let snapshot_driven = crate::msgmap! {
             key::ASSIGNED_KIND => Value::Int(4),
             key::ASSIGNED_MIN => Value::Int(0),
@@ -3354,8 +3542,47 @@ mod tests {
         let mut by_source = (0..11).map(|_| Value::Nil).collect::<Vec<_>>();
         by_source[10] = Value::Array(vec![entry(snapshot_driven.clone())]);
         assert!(Preset::parse(&document(Value::Array(by_source))).is_some());
-        let mut by_source = (0..12).map(|_| Value::Nil).collect::<Vec<_>>();
-        by_source[11] = Value::Array(vec![entry(snapshot_driven)]);
+        let mut by_source = (0..20).map(|_| Value::Nil).collect::<Vec<_>>();
+        by_source[19] = Value::Array(vec![entry(snapshot_driven.clone())]);
+        let floor = document(Value::Array(by_source));
+        let parsed = Preset::parse(&floor).expect("a Helix Floor's Snapshots ordinal parses");
+        assert_eq!(parsed.encode(), floor);
+        // A Stomp has no ordinal 19, so there it is not drawn as anything; a
+        // Helix Floor's 19 is Snapshots.
+        assert!(parsed
+            .assignments(crate::rpc::ControlLayout::Stomp)
+            .is_empty());
+        let floor = parsed.assignments(crate::rpc::ControlLayout::Helix);
+        assert_eq!(floor.len(), 1);
+        assert_eq!(floor[0].source, crate::rpc::Source::Snapshots);
+
+        // Ordinal 0 is "nothing" and holds no assignments.
+        let mut by_source = (0..20).map(|_| Value::Nil).collect::<Vec<_>>();
+        by_source[0] = Value::Array(vec![entry(snapshot_driven)]);
+        assert!(Preset::parse(&document(Value::Array(by_source))).is_none());
+
+        // A Variax model switched per snapshot targets neither a bypass nor a
+        // parameter, as a Helix Floor writes it.
+        let variax = crate::msgmap! {
+            0 => Value::Int(19),
+            key::ASSIGNED_KIND => Value::Int(4),
+            key::ASSIGNED_MIN => Value::Int(0),
+            key::ASSIGNED_MAX => Value::Int(60),
+            4 => Value::Int(1),
+            key::ASSIGNED_ON => Value::Int(0),
+            key::ASSIGNED_GLOBAL => Value::Int(45),
+            13 => Value::Bool(false),
+        };
+        let mut by_source = (0..20).map(|_| Value::Nil).collect::<Vec<_>>();
+        by_source[19] = Value::Array(vec![entry(variax.clone())]);
+        let floor = document(Value::Array(by_source));
+        let parsed = Preset::parse(&floor).expect("a Variax assignment parses");
+        assert_eq!(parsed.encode(), floor);
+
+        let mut negative = variax;
+        *negative.get_mut(key::ASSIGNED_GLOBAL).unwrap() = Value::Int(-1);
+        let mut by_source = (0..20).map(|_| Value::Nil).collect::<Vec<_>>();
+        by_source[19] = Value::Array(vec![entry(negative)]);
         assert!(Preset::parse(&document(Value::Array(by_source))).is_none());
     }
 
@@ -3437,6 +3664,31 @@ mod tests {
         };
         first.push(Value::Nil);
         assert!(Preset::parse(&document(trailing_state)).is_none());
+    }
+
+    #[test]
+    fn a_snapshot_takes_a_colour_as_the_pedal_writes_it() {
+        // A captured preset: three snapshots on Auto Color, none changed.
+        let mut preset = Preset::parse(FIXTURE).unwrap();
+        assert_eq!(preset.snapshot_details()[1].colour, Some(0));
+        assert!(preset.set_snapshot_colour(1, 8));
+        let parsed = Preset::parse(&preset.encode()).expect("a recoloured preset parses");
+        let snapshots = parsed.snapshot_details();
+        assert_eq!(snapshots[1].colour, Some(8));
+        // The pedal marks a snapshot it recolours; the others are untouched.
+        assert!(snapshots[1].named);
+        assert_eq!(snapshots[0].colour, Some(0));
+        assert!(!snapshots[0].named);
+    }
+
+    #[test]
+    fn a_snapshot_colour_must_be_one_the_pedal_has() {
+        let mut preset = Preset::parse(FIXTURE).unwrap();
+        let before = preset.encode();
+        assert!(!preset.set_snapshot_colour(0, 12));
+        assert!(!preset.set_snapshot_colour(0, -1));
+        assert!(!preset.set_snapshot_colour(99, 1));
+        assert_eq!(preset.encode(), before);
     }
 
     #[test]

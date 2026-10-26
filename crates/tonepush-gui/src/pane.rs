@@ -35,11 +35,29 @@ impl Lens {
     }
 }
 
+/// Why a Mic assignment cannot be taken off here: the editor reads it but does
+/// not know how to send a change to it yet.
+const MIC_HINT: &str = "a cab's Mic is changed on the pedal";
+
+/// How to put something under a source that carries nothing yet, naming it
+/// the way the assignment menu lists it.
+pub(crate) fn assign_hint(source: Source, on_off: bool) -> String {
+    let what = if on_off {
+        "a knob or an on/off"
+    } else {
+        "a knob"
+    };
+    // Short enough that a footswitch board card still shows the whole name.
+    format!("Right-click {what}, choose {}", source.label())
+}
+
 /// What a tag says for a source, as the pedal prints it.
 pub(crate) fn source_tag(source: Source) -> String {
     match source {
         Source::Footswitch(n) => format!("FS{n}"),
         Source::Expression(n) => format!("EXP {n}"),
+        Source::VariaxVolume => "Variax Vol".to_owned(),
+        Source::VariaxTone => "Variax Tone".to_owned(),
         Source::MidiCc => "MIDI".to_owned(),
         Source::Snapshots => "Snapshots".to_owned(),
     }
@@ -1200,6 +1218,77 @@ fn copy_snapshot_button(
     chosen
 }
 
+/// A colour from HX Edit's `footswitchLED` list as a round swatch: Auto
+/// Color (index 0) as a wheel of every colour, since it takes the colour of
+/// what it lights for, and the rest in their own light.
+fn paint_led(ui: &Ui, centre: Pos2, radius: f32, index: usize, name: &str) {
+    if index == 0 {
+        let wheel = [
+            "Red",
+            "Light Orange",
+            "Yellow",
+            "Green",
+            "Turquoise",
+            "Blue",
+            "Violet",
+            "Pink",
+        ];
+        let step = std::f32::consts::TAU / wheel.len() as f32;
+        for (k, colour) in wheel.iter().enumerate() {
+            theme::paint::arc(
+                ui.painter(),
+                centre,
+                radius / 2.0,
+                k as f32 * step,
+                step,
+                Stroke::new(radius, theme::led(colour).unwrap_or_else(theme::muted)),
+            );
+        }
+    } else {
+        ui.painter()
+            .circle_filled(centre, radius, theme::led_swatch(name));
+    }
+    ui.painter().circle_stroke(
+        centre,
+        radius,
+        Stroke::new(1.0, Color32::from_black_alpha(60)),
+    );
+}
+
+/// Every colour in HX Edit's `footswitchLED` list as a swatch, the chosen
+/// one ringed. Returns another one clicked.
+fn led_swatches(ui: &mut Ui, colours: &[String], chosen: usize) -> Option<usize> {
+    let mut clicked = None;
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::new(6.0, 6.0);
+        for (index, name) in colours.iter().enumerate() {
+            let on = index == chosen;
+            let (rect, response) = ui.allocate_exact_size(Vec2::splat(24.0), Sense::click());
+            let centre = rect.center();
+            paint_led(ui, centre, 11.0, index, name);
+            if on {
+                ui.painter()
+                    .circle_stroke(centre, 13.5, Stroke::new(2.0, theme::text()));
+            }
+            if response.on_hover_text(name).clicked() && !on {
+                clicked = Some(index);
+            }
+        }
+    });
+    clicked
+}
+
+/// What a snapshot's head in the matrix was asked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HeadAsk {
+    Switch(usize),
+    /// A snapshot and the colour chosen for it.
+    Colour(usize, usize),
+    Rename(usize),
+    /// Copy the first snapshot over the second.
+    CopyTo(usize, usize),
+}
+
 /// A form row's key, in a fixed column.
 fn form_key(ui: &mut Ui, text: &str) {
     let (place, _) = ui.allocate_exact_size(Vec2::new(84.0, 26.0), Sense::hover());
@@ -2010,7 +2099,17 @@ impl App {
                         open = Some(row.source);
                     }
                     theme::menu_separator(ui);
-                    if theme::menu_danger(ui, Icon::Close, "Take the control off").clicked() {
+                    // A Mic assignment is shown, not changed: offering to take
+                    // it off would offer something that cannot happen.
+                    if row.target == Target::Mic {
+                        theme::menu_disabled(
+                            ui,
+                            Some(Icon::Close),
+                            "Take the control off",
+                            Some(MIC_HINT),
+                        );
+                    } else if theme::menu_danger(ui, Icon::Close, "Take the control off").clicked()
+                    {
                         take_off = Some(row.target);
                     }
                 });
@@ -2114,8 +2213,19 @@ impl App {
 
     /// Every source the Footswitches lens lists, in the pedal's order.
     pub(crate) fn listed_sources(&self) -> Vec<Source> {
-        let mut sources: Vec<Source> = (1..=self.switch_count()).map(Source::Footswitch).collect();
-        sources.extend([Source::Expression(1), Source::Expression(2), Source::MidiCc]);
+        let controls = self.controls();
+        let mut sources: Vec<Source> = controls
+            .sources()
+            .into_iter()
+            .filter(|source| matches!(source, Source::Footswitch(_)))
+            .filter(|source| self.offers_switch(*source))
+            .collect();
+        sources.extend(controls.sources().into_iter().filter(|source| {
+            matches!(
+                source,
+                Source::Expression(_) | Source::VariaxVolume | Source::VariaxTone | Source::MidiCc
+            )
+        }));
         sources
     }
 
@@ -2187,6 +2297,7 @@ impl App {
             }
             Source::Expression(n) if self.carried_by(source).is_empty() => format!("EXP {n}"),
             Source::Expression(n) => format!("EXP {n} · heel to toe"),
+            Source::VariaxVolume | Source::VariaxTone => source_tag(source),
             Source::MidiCc => "MIDI".to_owned(),
             Source::Snapshots => "Snapshots".to_owned(),
         }
@@ -2237,6 +2348,7 @@ impl App {
                 .iter()
                 .any(|a| Self::auto_engage(a.source, a.target))
                 .then(|| "Auto on".to_owned()),
+            Source::VariaxVolume | Source::VariaxTone => None,
             Source::MidiCc => (!carried.is_empty()).then(|| "CC".to_owned()),
             Source::Snapshots => None,
         }
@@ -2446,20 +2558,14 @@ impl App {
                         Pos2::new(x, rect.top()),
                         Pos2::new(limit, rect.bottom()),
                     ))
-                    .id_salt(("source-mode", source.ordinal()))
+                    .id_salt(("source-mode", source))
                     .layout(egui::Layout::right_to_left(egui::Align::Center)),
             );
             theme::Chip::new(&mode).show(&mut child);
             limit = child.min_rect().left() - 10.0;
         }
         if empty {
-            let hint = match source {
-                Source::Footswitch(n) => {
-                    format!("Right-click a knob or an on/off and choose FS{n}")
-                }
-                Source::Expression(n) => format!("Right-click a knob and choose EXP {n}"),
-                _ => "Right-click a knob and choose MIDI".to_owned(),
-            };
+            let hint = assign_hint(source, matches!(source, Source::Footswitch(_)));
             let hint = shell::elided(
                 ui,
                 hint,
@@ -2547,6 +2653,7 @@ impl App {
             let what = match source {
                 Source::Footswitch(_) => "what your foot does",
                 Source::Expression(_) => "what the pedal sweeps",
+                Source::VariaxVolume | Source::VariaxTone => "what the guitar's knob turns",
                 Source::MidiCc => "what a controller sends",
                 Source::Snapshots => "",
             };
@@ -2673,67 +2780,13 @@ impl App {
         if !colours.is_empty() {
             ui.horizontal_top(|ui| {
                 form_key(ui, "Light");
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(6.0, 6.0);
-                    let chosen = view.colour.unwrap_or(0);
-                    for (index, name) in colours.iter().enumerate() {
-                        let on = index as i64 == chosen;
-                        let (rect, response) =
-                            ui.allocate_exact_size(Vec2::splat(24.0), Sense::click());
-                        let centre = rect.center();
-                        if index == 0 {
-                            // Auto Color: every colour, since it takes the
-                            // colour of what it carries.
-                            let wheel = [
-                                "Red",
-                                "Light Orange",
-                                "Yellow",
-                                "Green",
-                                "Turquoise",
-                                "Blue",
-                                "Violet",
-                                "Pink",
-                            ];
-                            let step = std::f32::consts::TAU / wheel.len() as f32;
-                            for (k, colour) in wheel.iter().enumerate() {
-                                theme::paint::arc(
-                                    ui.painter(),
-                                    centre,
-                                    5.5,
-                                    k as f32 * step,
-                                    step,
-                                    Stroke::new(
-                                        11.0,
-                                        theme::led(colour).unwrap_or_else(theme::muted),
-                                    ),
-                                );
-                            }
-                        } else {
-                            ui.painter()
-                                .circle_filled(centre, 11.0, theme::led_swatch(name));
-                        }
-                        ui.painter().circle_stroke(
-                            centre,
-                            11.0,
-                            Stroke::new(1.0, Color32::from_black_alpha(60)),
-                        );
-                        if on {
-                            ui.painter().circle_stroke(
-                                centre,
-                                13.5,
-                                Stroke::new(2.0, theme::text()),
-                            );
-                        }
-                        if response.on_hover_text(name).clicked() && !on {
-                            change = Some(crate::SwitchChange::Set {
-                                switch: n,
-                                edit: session::SwitchEdit::Colour(
-                                    (index > 0).then_some(index as i64),
-                                ),
-                            });
-                        }
-                    }
-                });
+                let chosen = view.colour.unwrap_or(0) as usize;
+                if let Some(index) = led_swatches(ui, &colours, chosen) {
+                    change = Some(crate::SwitchChange::Set {
+                        switch: n,
+                        edit: session::SwitchEdit::Colour((index > 0).then_some(index as i64)),
+                    });
+                }
             });
         }
         ui.horizontal(|ui| {
@@ -2773,7 +2826,7 @@ impl App {
         } else {
             match a.target {
                 Target::Bypass => "turns on and off".to_owned(),
-                Target::Param(_) => self.target_name(a.block, a.target),
+                Target::Param(_) | Target::Mic => self.target_name(a.block, a.target),
             }
         };
         let mut remove = false;
@@ -2798,8 +2851,10 @@ impl App {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 remove = theme::IconButton::new(Icon::Close)
                     .small()
+                    .enabled(a.target != Target::Mic)
                     .show(ui)
                     .on_hover_text("Take this off")
+                    .on_disabled_hover_text(MIC_HINT)
                     .clicked();
             });
         });
@@ -2807,6 +2862,7 @@ impl App {
             let words = match a.source {
                 Source::Footswitch(_) => ("switch off", "switch on"),
                 Source::Expression(_) => ("heel", "toe"),
+                Source::VariaxVolume | Source::VariaxTone => ("knob at 0", "knob at 10"),
                 Source::MidiCc => ("CC at 0", "CC at 127"),
                 Source::Snapshots => ("lowest", "highest"),
             };
@@ -3028,13 +3084,31 @@ impl App {
             });
     }
 
+    /// HX Edit's footswitch LED colours, where this device lights its
+    /// snapshots in a colour TonePush may change.
+    fn snapshot_colours(&self) -> Option<Vec<String>> {
+        if self.pro_active() {
+            return None;
+        }
+        hx_proto::PROFILES
+            .iter()
+            .find(|profile| profile.name == self.device.trim())
+            .filter(|profile| profile.snapshot_colours)?;
+        self.catalog
+            .as_ref()?
+            .menu(hx_catalog::FOOTSWITCH_LED)
+            .map(<[String]>::to_vec)
+    }
+
     /// The matrix's head row: the snapshots' names, the one on the pedal
-    /// lit. Returns a snapshot clicked.
-    fn snapshot_head(&self, ui: &mut Ui, column: f32, salt: &str) -> Option<usize> {
+    /// lit. Clicking another snapshot switches to it; clicking the one on the
+    /// pedal opens what can be done to that snapshot.
+    fn snapshot_head(&self, ui: &mut Ui, column: f32, salt: &str) -> Option<HeadAsk> {
         let width = ui.available_width();
         let label_width = width - column * self.snapshots.len() as f32;
         let (head, _) = ui.allocate_exact_size(Vec2::new(width, 34.0), Sense::hover());
         let mut pick = None;
+        let colours = self.snapshot_colours();
         for (index, name) in self.snapshots.iter().enumerate() {
             let cell = Rect::from_min_size(
                 Pos2::new(
@@ -3050,7 +3124,11 @@ impl App {
                     ui.id().with(("snapshot-head", salt, index)),
                     Sense::click(),
                 )
-                .on_hover_text(format!("Switch to {name}"));
+                .on_hover_text(if on {
+                    format!("{name}: its colour, name and copies")
+                } else {
+                    format!("Switch to {name}")
+                });
             if on {
                 ui.painter()
                     .rect_filled(cell, CornerRadius::ZERO, theme::hover());
@@ -3067,23 +3145,125 @@ impl App {
                 theme::semibold(12.0),
                 if on { theme::muted() } else { theme::faint() },
             );
+            // Its colour first, where the device lights snapshots in one.
+            let led = colours.as_ref().and_then(|colours| {
+                let colour = self.snapshot_details.get(index)?.colour?;
+                let colour = usize::try_from(colour).ok()?;
+                Some((colour, colours.get(colour)?.clone()))
+            });
+            let led_width = if led.is_some() { 14.0 } else { 0.0 };
+            // The one on the pedal has a menu, and says so.
+            let chevron_width = if on { 14.0 } else { 0.0 };
             let label = shell::elided(
                 ui,
                 name.clone(),
                 theme::semibold(12.0),
                 if on { theme::text() } else { theme::muted() },
-                column - 24.0,
+                column - 24.0 - led_width - chevron_width,
             );
             let number_width = number.size().x + 6.0;
-            let total = number_width + label.size().x;
-            let x = cell.center().x - total / 2.0;
+            let total = led_width + number_width + label.size().x + chevron_width;
+            let mut x = cell.center().x - total / 2.0;
+            if let Some((colour, led_name)) = &led {
+                paint_led(
+                    ui,
+                    Pos2::new(x + 4.5, cell.center().y),
+                    4.5,
+                    *colour,
+                    led_name,
+                );
+                x += led_width;
+            }
+            let label_end = x + number_width + label.size().x;
             shell::paint_line(ui, number, x, cell.center().y);
             shell::paint_line(ui, label, x + number_width, cell.center().y);
-            if response.clicked() && !on {
-                pick = Some(index);
+            if on {
+                theme::paint_icon(
+                    ui,
+                    Icon::ChevronDown,
+                    Pos2::new(label_end + 4.0 + 6.0, cell.center().y),
+                    12.0,
+                    theme::muted(),
+                );
+                egui::Popup::menu(&response).gap(4.0).show(|ui| {
+                    pick = self.snapshot_menu(ui, index, name, colours.as_deref(), led);
+                });
+            } else if response.clicked() {
+                pick = Some(HeadAsk::Switch(index));
             }
         }
         pick
+    }
+
+    /// What can be done to one snapshot: its colour, where the device lights
+    /// snapshots in one, its name, and copying it over another.
+    fn snapshot_menu(
+        &self,
+        ui: &mut Ui,
+        index: usize,
+        name: &str,
+        colours: Option<&[String]>,
+        led: Option<(usize, String)>,
+    ) -> Option<HeadAsk> {
+        let mut ask = None;
+        theme::menu_width(ui, 240.0);
+        theme::menu_header(ui, &format!("{} {name}", index + 1), None);
+        if let (Some(colours), Some((colour, _))) = (colours, led) {
+            ui.horizontal(|ui| {
+                ui.add_space(8.0);
+                ui.vertical(|ui| {
+                    ui.set_width(220.0);
+                    if let Some(chosen) = led_swatches(ui, colours, colour) {
+                        ask = Some(HeadAsk::Colour(index, chosen));
+                    }
+                });
+            });
+            ui.add_space(4.0);
+            theme::menu_separator(ui);
+        }
+        if theme::menu_item(ui, Some(Icon::TextCursorInput), "Rename", None).clicked() {
+            ask = Some(HeadAsk::Rename(index));
+        }
+        let others: Vec<(usize, &String)> = self
+            .snapshots
+            .iter()
+            .enumerate()
+            .filter(|(other, _)| *other != index)
+            .collect();
+        if !others.is_empty() {
+            theme::menu_separator(ui);
+            theme::menu_header(ui, &format!("Copy {name} over"), None);
+            for (other, other_name) in others {
+                if theme::menu_item(ui, None, &format!("{} {other_name}", other + 1), None)
+                    .clicked()
+                {
+                    ask = Some(HeadAsk::CopyTo(index, other));
+                }
+            }
+        }
+        if ask.is_some() {
+            ui.close();
+        }
+        ask
+    }
+
+    /// Do what a snapshot's head asked.
+    fn answer_snapshot_head(&mut self, ask: HeadAsk) {
+        match ask {
+            HeadAsk::Switch(index) => self.switch_snapshot(index),
+            HeadAsk::Colour(index, colour) => self.edit(Cmd::SetSnapshotColour {
+                index,
+                colour: colour as i64,
+            }),
+            HeadAsk::Rename(index) => {
+                self.snapshot_draft = self.snapshots.get(index).map(|name| (index, name.clone()));
+            }
+            HeadAsk::CopyTo(from, to) => self.edit(Cmd::CopySnapshot { from, to }),
+        }
+    }
+
+    fn snapshot_column_width(&self, width: f32, column: f32) -> f32 {
+        snapshot_column_width(self.snapshots.len(), width, column)
     }
 
     /// The highlight down the column of the snapshot on the pedal.
@@ -3112,6 +3292,7 @@ impl App {
             shell::paint_line(ui, words, row.left() + 14.0, row.center().y);
             return;
         }
+        let column = self.snapshot_column_width(ui.available_width(), column);
         let pick = self.snapshot_head(ui, column, "matrix");
         let width = ui.available_width();
         let label_width = width - column * self.snapshots.len() as f32;
@@ -3218,8 +3399,8 @@ impl App {
             self.snapshot_value_rows(ui, column, "Values that change");
         }
         ui.add_space(8.0);
-        if let Some(index) = pick {
-            self.switch_snapshot(index);
+        if let Some(ask) = pick {
+            self.answer_snapshot_head(ask);
         }
     }
 
@@ -3334,8 +3515,9 @@ impl App {
         if self.snapshots.is_empty() {
             return;
         }
-        if let Some(index) = self.snapshot_head(ui, column, "values") {
-            self.switch_snapshot(index);
+        let column = self.snapshot_column_width(ui.available_width(), column);
+        if let Some(ask) = self.snapshot_head(ui, column, "values") {
+            self.answer_snapshot_head(ask);
         }
         self.snapshot_value_rows(ui, column, "Values each snapshot sets");
         let width = ui.available_width();
@@ -3565,22 +3747,27 @@ impl App {
             egui::Frame::new()
                 .inner_margin(egui::Margin::same(14))
                 .show(ui, |ui| {
-                    let columns = sources.len().max(1);
                     let gap = 12.0;
+                    let columns = board_columns(sources.len(), ui.available_width(), gap);
                     let width = ((ui.available_width() - gap * (columns as f32 - 1.0))
                         / columns as f32)
                         .floor();
-                    // One height for the row: the tallest card's.
+                    // One height for every row: the tallest card's.
                     let height = sources
                         .iter()
                         .map(|source| self.source_card_height(*source))
                         .fold(0.0, f32::max);
-                    ui.horizontal_top(|ui| {
-                        ui.spacing_mut().item_spacing.x = gap;
-                        for source in &sources {
-                            self.source_card(ui, *source, Vec2::new(width, height));
+                    for (row, cards) in sources.chunks(columns).enumerate() {
+                        if row > 0 {
+                            ui.add_space(gap);
                         }
-                    });
+                        ui.horizontal_top(|ui| {
+                            ui.spacing_mut().item_spacing.x = gap;
+                            for source in cards {
+                                self.source_card(ui, *source, Vec2::new(width, height));
+                            }
+                        });
+                    }
                 });
         });
         if open_midi {
@@ -3663,7 +3850,7 @@ impl App {
                         Pos2::new(left, switch.top()),
                         Pos2::new(right, switch.bottom()),
                     ))
-                    .id_salt(("card-mode", source.ordinal()))
+                    .id_salt(("card-mode", source))
                     .layout(egui::Layout::right_to_left(egui::Align::Center)),
             );
             theme::Chip::new(&mode).show(&mut child);
@@ -3687,11 +3874,7 @@ impl App {
         shell::paint_line(ui, second, left, switch.center().y + 9.0);
         let mut y = switch.bottom() + 5.0 + 10.0 + 11.0;
         if empty {
-            let hint = match source {
-                Source::Footswitch(n) => format!("Right-click a knob and choose FS{n}"),
-                Source::Expression(n) => format!("Right-click a knob and choose EXP {n}"),
-                _ => "Right-click a knob and choose MIDI".to_owned(),
-            };
+            let hint = assign_hint(source, false);
             let hint = shell::elided(
                 ui,
                 hint,
@@ -3811,9 +3994,102 @@ impl App {
     }
 }
 
+/// How many source cards share a row of the footswitch board: all of them
+/// when each still gets 160 points, as an HX Stomp's always do, and otherwise
+/// as many as do. A Helix Floor lists eleven footswitches, three pedals and two
+/// Variax knobs, and in one row their words ran into each other.
+fn board_columns(cards: usize, available: f32, gap: f32) -> usize {
+    const NARROWEST: f32 = 160.0;
+    let fit = ((available + gap) / (NARROWEST + gap)).floor().max(1.0) as usize;
+    cards.clamp(1, fit)
+}
+
+/// How wide each snapshot's column is: as asked, unless that many columns
+/// would leave the block names no room. A Helix has eight snapshots to an HX
+/// Stomp's three, and at the asked width they ran out of the panel to the
+/// left, over whatever was beside it.
+fn snapshot_column_width(count: usize, width: f32, column: f32) -> f32 {
+    const NAMES: f32 = 120.0;
+    const NARROWEST: f32 = 28.0;
+    column.min(((width - NAMES) / count.max(1) as f32).max(NARROWEST))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The hint names the menu item to pick, for every source a device lists:
+    /// a Variax knob used to read "choose MIDI".
+    #[test]
+    fn an_empty_source_says_which_menu_item_to_choose() {
+        assert_eq!(
+            assign_hint(Source::VariaxVolume, false),
+            "Right-click a knob, choose Variax Volume"
+        );
+        assert_eq!(
+            assign_hint(Source::Expression(3), false),
+            "Right-click a knob, choose Expression Pedal 3"
+        );
+        assert_eq!(
+            assign_hint(Source::Footswitch(7), true),
+            "Right-click a knob or an on/off, choose Footswitch 7"
+        );
+        assert_eq!(
+            assign_hint(Source::MidiCc, false),
+            "Right-click a knob, choose MIDI CC"
+        );
+    }
+
+    #[test]
+    fn a_crowded_footswitch_board_wraps_rather_than_squeezing() {
+        // An HX Stomp's cards keep one row.
+        assert_eq!(board_columns(5, 1200.0, 12.0), 5);
+        // A Helix Floor's sixteen in the same room wrap, seven to a row, each
+        // keeping its 160 points.
+        let columns = board_columns(16, 1200.0, 12.0);
+        assert_eq!(columns, 7);
+        let width = (1200.0 - 12.0 * (columns as f32 - 1.0)) / columns as f32;
+        assert!(width >= 160.0, "{width}");
+        // Never fewer than one, however narrow.
+        assert_eq!(board_columns(16, 50.0, 12.0), 1);
+        assert_eq!(board_columns(0, 1200.0, 12.0), 1);
+    }
+
+    #[test]
+    fn eight_snapshots_stay_inside_their_panel() {
+        // Three fit at the width asked for, as on an HX Stomp.
+        assert_eq!(snapshot_column_width(3, 600.0, 104.0), 104.0);
+        // Eight at that width would start 232 points left of the panel.
+        let column = snapshot_column_width(8, 600.0, 104.0);
+        assert_eq!(column, 60.0);
+        assert!(600.0 - 8.0 * column >= 120.0, "the block names keep room");
+    }
+
+    #[test]
+    fn only_a_helix_floor_offers_snapshot_colours() {
+        let (to_device, _cmds) = std::sync::mpsc::channel();
+        let (_events, from_device) = std::sync::mpsc::channel();
+        let mut app = App::new(&egui::Context::default(), to_device, from_device);
+        if app.catalog.is_none() {
+            eprintln!("SKIPPED: HX Edit is not installed");
+            return;
+        }
+        app.device = "Helix Floor".into();
+        let colours = app.snapshot_colours().expect("a Floor's snapshots light");
+        assert_eq!(colours[0], "Auto Color");
+        assert_eq!(colours[2], "Red");
+        // Their presets carry the field, but nobody has seen it light them.
+        for device in [
+            "HX Stomp",
+            "HX Stomp XL",
+            "HX Effects",
+            "Helix LT",
+            "Helix Rack",
+        ] {
+            app.device = device.into();
+            assert_eq!(app.snapshot_colours(), None, "{device}");
+        }
+    }
 
     #[test]
     fn a_face_never_leaves_one_straggler() {
