@@ -747,9 +747,29 @@ pub(crate) fn sidebar_foot(ui: &mut Ui, foot: &Foot, update: Option<&str>) -> Fo
 // Deck pieces
 
 /// The slot chip at the start of a deck: 01B.
+/// How wide a slot chip is around a label this wide.
+fn slot_chip_width(label: f32) -> f32 {
+    (label + 14.0).max(38.0)
+}
+
+/// Whether the deck can spell out every snapshot's name and still leave the
+/// preset's name 320 points. Everything left of the title comes off first:
+/// the margin, the sidebar's button when the sidebar is hidden, the slot chip,
+/// and the 14 points that separate each of them and the right-hand group.
+fn snapshot_names_fit(spelled_out: f32, available: f32, chip: f32, sidebar_hidden: bool) -> bool {
+    const TITLE: f32 = 320.0;
+    const GAP: f32 = 14.0;
+    let margin = if sidebar_hidden {
+        12.0 + 28.0 + GAP
+    } else {
+        20.0
+    };
+    spelled_out <= available - (margin + chip + GAP + GAP + TITLE)
+}
+
 pub(crate) fn slot_chip(ui: &mut Ui, slot: &str) -> Response {
     let label = galley(ui, slot, theme::semibold(12.5), theme::text_soft());
-    let size = Vec2::new((label.size().x + 14.0).max(38.0), 24.0);
+    let size = Vec2::new(slot_chip_width(label.size().x), 24.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
     ui.painter().rect(
         rect,
@@ -1553,6 +1573,29 @@ pub(crate) fn sentence_case(text: &str) -> String {
 // The frame, for the app
 
 impl App {
+    /// How the connected HX numbers what can drive a parameter.
+    pub(crate) fn controls(&self) -> hx_proto::rpc::ControlLayout {
+        hx_proto::PROFILES
+            .iter()
+            .find(|profile| profile.name == self.device.trim())
+            .map_or(hx_proto::rpc::ControlLayout::Stomp, |profile| {
+                profile.controls
+            })
+    }
+
+    /// Whether a source is worth offering on this pedal. A Stomp's protocol
+    /// has room for five footswitches and the pedal has three, so the two it
+    /// does not have are left out; a Helix Floor offers every one its own
+    /// menu does.
+    pub(crate) fn offers_switch(&self, source: hx_proto::rpc::Source) -> bool {
+        match (self.controls(), source) {
+            (hx_proto::rpc::ControlLayout::Stomp, hx_proto::rpc::Source::Footswitch(n)) => {
+                n <= self.switch_count()
+            }
+            _ => true,
+        }
+    }
+
     /// How many slots one bank holds on the connected HX.
     pub(crate) fn presets_per_bank(&self) -> usize {
         hx_proto::PROFILES
@@ -1582,7 +1625,7 @@ impl App {
             })
             .map(|index| {
                 let name = self.presets.get(index).cloned().unwrap_or_default();
-                let selected = index as i64 == self.preset_index;
+                let selected = self.loaded_in_view() == Some(index as i64);
                 PresetRow {
                     index,
                     slot: self.active_slot_label(index as i64),
@@ -1869,6 +1912,7 @@ impl App {
                 format!("{kept} of the pedal's {total} presets are in your library"),
             )
         };
+        self.setlist_picker(ui, live);
         let asked = presets_header(ui, &aside, &hint, self.show_favorites_only, live);
         if asked.favourites {
             self.show_favorites_only = !self.show_favorites_only;
@@ -1881,6 +1925,57 @@ impl App {
         }
         self.presets_rect = Some(ui.available_rect_before_wrap());
         self.hx_preset_list(ui);
+    }
+
+    /// Which of the pedal's setlists the list shows. Only a device with more
+    /// than one gets it: an HX Stomp's single list needs no choosing.
+    fn setlist_picker(&mut self, ui: &mut Ui, live: bool) {
+        if self.setlists.len() < 2 {
+            return;
+        }
+        let label = |index: usize, name: &str| {
+            let name = if name.trim().is_empty() {
+                format!("Setlist {}", index + 1)
+            } else {
+                name.trim().to_owned()
+            };
+            if index as i64 == self.loaded_setlist && self.preset_index >= 0 {
+                format!("{name}  (loaded)")
+            } else {
+                name
+            }
+        };
+        let labels: Vec<String> = self
+            .setlists
+            .iter()
+            .enumerate()
+            .map(|(index, name)| label(index, name))
+            .collect();
+        let mut chosen = self.setlist;
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.add_space(16.0);
+            ui.add_enabled_ui(live, |ui| {
+                egui::ComboBox::from_id_salt("hx-setlist")
+                    .width((ui.available_width() - 10.0).max(80.0))
+                    .selected_text(
+                        labels
+                            .get(self.setlist.max(0) as usize)
+                            .cloned()
+                            .unwrap_or_default(),
+                    )
+                    .show_ui(ui, |ui| {
+                        for (index, label) in labels.iter().enumerate() {
+                            ui.selectable_value(&mut chosen, index as i64, label);
+                        }
+                    })
+                    .response
+                    .on_hover_text("Which setlist the list shows. The loaded preset stays loaded.");
+            });
+        });
+        if chosen != self.setlist {
+            self.show_setlist(chosen);
+        }
     }
 
     fn hx_preset_list(&mut self, ui: &mut Ui) {
@@ -2072,7 +2167,7 @@ impl App {
             if back {
                 self.go_to(Page::Edit);
             }
-            if !(back && index == self.preset_index) {
+            if !(back && self.loaded_in_view() == Some(index)) {
                 // Selecting a preset throws away whatever is in the edit
                 // buffer. That is the device's rule, not ours, and it costs a
                 // person their unsaved work in silence, so it asks first.
@@ -2408,10 +2503,7 @@ impl App {
                                 true,
                                 "",
                             ) {
-                                self.send(Cmd::Rename {
-                                    index: self.preset_index,
-                                    name,
-                                });
+                                self.rename_loaded(name);
                             }
                         } else {
                             let title =
@@ -2496,7 +2588,7 @@ impl App {
                 .map(|entry| format!(" as v{}", entry.version))
                 .unwrap_or_default()
         };
-        match self.slot_sync(self.preset_index) {
+        match self.slot_sync(self.loaded_in_view()?) {
             theme::Sync::Same => Some(State::Note(format!(
                 "In your library{}",
                 version(&self.preset_name)
@@ -2527,11 +2619,45 @@ impl App {
         }
         let names = self.snapshots.clone();
         let current = self.current_snapshot;
+        // Every name only when they fit beside the title. A Helix has eight
+        // snapshots, and spelled out they ran over the preset's name.
+        let spelled_out: f32 = names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| {
+                let width = |text: String, font| {
+                    ui.painter()
+                        .layout_no_wrap(text, font, Color32::PLACEHOLDER)
+                        .size()
+                        .x
+                };
+                20.0 + width(name.clone(), theme::medium(12.5))
+                    + width((index + 1).to_string(), theme::semibold(11.5))
+                    + 7.0
+                    + 2.0
+            })
+            .sum();
+        let chip = ui
+            .painter()
+            .layout_no_wrap(
+                self.active_slot_label(self.preset_index),
+                theme::semibold(12.5),
+                Color32::PLACEHOLDER,
+            )
+            .size()
+            .x;
+        let numbers_only = tier == Tier::S
+            || !snapshot_names_fit(
+                spelled_out,
+                ui.available_width(),
+                slot_chip_width(chip),
+                self.sidebar_hidden,
+            );
         let segments: Vec<theme::Segment> = names
             .iter()
             .enumerate()
             .map(|(index, name)| {
-                let label = if tier == Tier::S && index != current {
+                let label = if numbers_only && index != current {
                     ""
                 } else {
                     name.as_str()
@@ -2638,6 +2764,23 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The title keeps its 320 points after the margin, the slot chip and
+    /// the gaps, not only after the snapshots.
+    #[test]
+    fn snapshot_names_leave_the_title_its_room() {
+        let chip = slot_chip_width(26.0);
+        assert_eq!(chip, 40.0);
+        // 20 margin, a 40 chip and two 14 gaps leave 1000 - 408 = 592.
+        assert!(snapshot_names_fit(592.0, 1000.0, chip, false));
+        assert!(
+            !snapshot_names_fit(593.0, 1000.0, chip, false),
+            "one point more would take it from the title"
+        );
+        // The sidebar's button takes its place too once the sidebar is hidden.
+        assert!(!snapshot_names_fit(592.0, 1000.0, chip, true));
+        assert!(snapshot_names_fit(558.0, 1000.0, chip, true));
+    }
 
     #[test]
     fn the_tiers_switch_at_1100_and_1800_points() {

@@ -877,6 +877,14 @@ impl Panel {
         !self.online && !self.failed && !self.updating()
     }
 
+    /// Why the last look found a StompStation PRO but could not open it. A
+    /// look that finds none fails nothing, so this is only ever a pedal that
+    /// was there.
+    pub(crate) fn connect_failure(&self) -> Option<&str> {
+        (!self.online && self.failed && !self.updating() && !self.status.is_empty())
+            .then_some(self.status.as_str())
+    }
+
     pub(crate) fn send_tone(&self, index: usize, name: String, bytes: Vec<u8>) {
         let _ = self.tx.send(Cmd::ImportBytes { index, name, bytes });
     }
@@ -4587,10 +4595,11 @@ pub(crate) mod demo {
             }
         }
 
-        /// No StompStation PRO answered.
-        pub(crate) fn demo_not_found(&mut self) {
+        /// A StompStation PRO listed on USB whose serial port would not open.
+        pub(crate) fn demo_connect_failed(&mut self) {
             self.failed = true;
-            self.status = "No StompStation PRO found".to_owned();
+            self.status =
+                "I/O error while opening /dev/ttyACM0: Permission denied (os error 13)".to_owned();
         }
 
         /// Open the pedal's page on its settings.
@@ -5337,5 +5346,34 @@ root\\app\\ir\\on_off:{\"value\":\"OFF\"}\r\n";
         let confirmation = panel.confirmation.as_ref().expect("asks before discarding");
         assert_eq!(confirmation.action, "Discard and load");
         assert!(matches!(confirmation.command, Cmd::SelectPreset(2)));
+    }
+
+    /// A look that finds no pedal keeps looking; one that finds a pedal it
+    /// cannot open keeps the reason for the connect page to show.
+    #[test]
+    fn a_pedal_that_would_not_open_says_why() {
+        let (to_device, _) = mpsc::channel();
+        let (_, from_device) = mpsc::channel();
+        let mut app = crate::App::new(&egui::Context::default(), to_device, from_device);
+        let (commands, events) = app.pro.stand_in();
+
+        app.pro.reconnect();
+        assert!(matches!(commands.try_recv(), Ok(Cmd::Connect)));
+        events.send(Evt::Looked).unwrap();
+        app.pro.drain();
+        assert!(app.pro.looking());
+        assert_eq!(app.pro.connect_failure(), None);
+
+        app.pro.reconnect();
+        let reason = "I/O error while opening /dev/ttyACM0: Permission denied (os error 13)";
+        events.send(Evt::Failed(reason.into())).unwrap();
+        events.send(Evt::Looked).unwrap();
+        app.pro.drain();
+        assert!(!app.pro.looking());
+        assert_eq!(app.pro.connect_failure(), Some(reason));
+
+        // Looking again starts afresh.
+        app.pro.reconnect();
+        assert_eq!(app.pro.connect_failure(), None);
     }
 }
