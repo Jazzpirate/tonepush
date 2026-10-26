@@ -831,8 +831,9 @@ impl Preset {
     ///
     /// The shape: top-level key 4 is an array indexed by source ordinal, so
     /// entry 1 is everything Expression Pedal 1 drives. Each item pairs a block
-    /// with the assignment itself.
-    pub fn assignments(&self) -> Vec<Assignment> {
+    /// with the assignment itself. Which source an ordinal is depends on the
+    /// device, so the caller says whose numbering the document uses.
+    pub fn assignments(&self, layout: crate::rpc::ControlLayout) -> Vec<Assignment> {
         let Some(Value::Array(by_source)) = self.tone.get(key::ASSIGNMENTS) else {
             return Vec::new();
         };
@@ -842,7 +843,7 @@ impl Preset {
                 continue;
             };
             // Slot 0 is the "nothing" ordinal and holds nothing to draw.
-            let Some(source) = crate::rpc::Source::from_ordinal(ordinal as i64) else {
+            let Some(source) = layout.source(ordinal as i64) else {
                 continue;
             };
             for entry in entries {
@@ -1980,7 +1981,7 @@ mod tests {
             },
         };
 
-        let found = preset.assignments();
+        let found = preset.assignments(crate::rpc::ControlLayout::Stomp);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].target, Target::Param(1), "key 29, not key 28");
         assert_eq!(found[0].block, 3);
@@ -2035,7 +2036,7 @@ mod tests {
         };
 
         for cc in [0, 4, 42, 77, 127] {
-            let found = preset(cc).assignments();
+            let found = preset(cc).assignments(crate::rpc::ControlLayout::Stomp);
             assert_eq!(found.len(), 1, "a bypass on CC {cc} went missing");
             assert_eq!(found[0].target, Target::Bypass);
             assert_eq!(found[0].block, 2);
@@ -2073,7 +2074,7 @@ mod tests {
                 ]),
             },
         };
-        let found = preset.assignments();
+        let found = preset.assignments(crate::rpc::ControlLayout::Stomp);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].target, Target::Param(0));
         assert_eq!(
@@ -2127,7 +2128,7 @@ mod tests {
         };
 
         for cc in [4, 42, 43, 77] {
-            let found = under_midi(cc).assignments();
+            let found = under_midi(cc).assignments(crate::rpc::ControlLayout::Stomp);
             assert_eq!(found.len(), 1, "the assignment on CC {cc} went missing");
             assert_eq!(found[0].target, Target::Param(1));
             assert_eq!(found[0].block, 5);
@@ -3264,7 +3265,10 @@ mod tests {
             },
         };
         let parsed = Preset::parse(&document(under_footswitch(entry(reversed_switch)))).unwrap();
-        let assignment = parsed.assignments().pop().unwrap();
+        let assignment = parsed
+            .assignments(crate::rpc::ControlLayout::Stomp)
+            .pop()
+            .unwrap();
         assert_eq!((assignment.min, assignment.max), (1.0, 0.0));
 
         let missing_target = crate::msgmap! {
@@ -3301,8 +3305,14 @@ mod tests {
         let floor = document(Value::Array(by_source));
         let parsed = Preset::parse(&floor).expect("a Helix Floor's Snapshots ordinal parses");
         assert_eq!(parsed.encode(), floor);
-        // Nothing names ordinal 19 yet, so it is not drawn as anything.
-        assert!(parsed.assignments().is_empty());
+        // A Stomp has no ordinal 19, so there it is not drawn as anything; a
+        // Helix Floor's 19 is Snapshots.
+        assert!(parsed
+            .assignments(crate::rpc::ControlLayout::Stomp)
+            .is_empty());
+        let floor = parsed.assignments(crate::rpc::ControlLayout::Helix);
+        assert_eq!(floor.len(), 1);
+        assert_eq!(floor[0].source, crate::rpc::Source::Snapshots);
 
         // Ordinal 0 is "nothing" and holds no assignments.
         let mut by_source = (0..20).map(|_| Value::Nil).collect::<Vec<_>>();

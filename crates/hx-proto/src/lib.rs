@@ -68,6 +68,8 @@ pub struct DeviceProfile {
     /// Family and member ids, as reported by a MIDI identity request and stored
     /// in `.hlx` files - HX Stomp is `0x00210006`.
     pub device_id: u32,
+    /// How the device numbers what can drive a parameter.
+    pub controls: rpc::ControlLayout,
 }
 
 impl DeviceProfile {
@@ -89,6 +91,7 @@ pub const HX_STOMP: DeviceProfile = DeviceProfile {
     presets_per_bank: 3,
     switches: 5,
     device_id: 0x0021_0006,
+    controls: rpc::ControlLayout::Stomp,
 };
 pub const HX_STOMP_XL: DeviceProfile = DeviceProfile {
     product_id: 0x4253,
@@ -97,6 +100,7 @@ pub const HX_STOMP_XL: DeviceProfile = DeviceProfile {
     presets_per_bank: 3,
     switches: 8,
     device_id: 0x0021_000B,
+    controls: rpc::ControlLayout::Stomp,
 };
 pub const HELIX_FLOOR: DeviceProfile = DeviceProfile {
     product_id: 0x4248,
@@ -104,8 +108,12 @@ pub const HELIX_FLOOR: DeviceProfile = DeviceProfile {
     presets: 128,
     // 32 banks of A to D, confirmed on a Floor: its fourth preset is 01D.
     presets_per_bank: 4,
-    switches: 10,
+    // FS1 to FS11 take assignments, as its own menu lists them; FS12 is
+    // Tap/Tuner. The pedal's own footswitch numbers address them, so
+    // switch 9 is the second on the lower row.
+    switches: 11,
     device_id: 0x0021_0001,
+    controls: rpc::ControlLayout::Helix,
 };
 pub const HELIX_RACK: DeviceProfile = DeviceProfile {
     product_id: 0x4249,
@@ -114,6 +122,7 @@ pub const HELIX_RACK: DeviceProfile = DeviceProfile {
     presets_per_bank: 3,
     switches: 10,
     device_id: 0x0021_0002,
+    controls: rpc::ControlLayout::Stomp,
 };
 pub const HELIX_LT: DeviceProfile = DeviceProfile {
     product_id: 0x424A,
@@ -122,6 +131,7 @@ pub const HELIX_LT: DeviceProfile = DeviceProfile {
     presets_per_bank: 3,
     switches: 10,
     device_id: 0x0021_0004,
+    controls: rpc::ControlLayout::Stomp,
 };
 pub const HX_EFFECTS: DeviceProfile = DeviceProfile {
     product_id: 0x4245,
@@ -130,6 +140,7 @@ pub const HX_EFFECTS: DeviceProfile = DeviceProfile {
     presets_per_bank: 4,
     switches: 6,
     device_id: 0x0021_0005,
+    controls: rpc::ControlLayout::Stomp,
 };
 
 /// Every device profile we recognise.
@@ -167,6 +178,12 @@ mod tests {
         for (product_id, profile) in expected {
             assert_eq!(profile_for(product_id), Some(&profile));
         }
+    }
+
+    #[test]
+    fn a_helix_floor_has_eleven_assignable_footswitches() {
+        assert_eq!(HELIX_FLOOR.switches, 11);
+        assert_eq!(HELIX_FLOOR.controls, rpc::ControlLayout::Helix);
     }
 
     #[test]
