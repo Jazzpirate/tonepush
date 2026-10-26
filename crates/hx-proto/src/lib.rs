@@ -72,6 +72,12 @@ pub struct DeviceProfile {
     /// change. Every device's presets carry the field, but only a Helix Floor
     /// has been seen to show it.
     pub snapshot_colours: bool,
+    /// What each path's DSP holds, in hundredths of HX Edit's load units, so
+    /// that adding up block costs is exact. `None` where it was never
+    /// measured: nothing is held back from such a device.
+    pub dsp_budget: Option<u32>,
+    /// How the device numbers what can drive a parameter.
+    pub controls: rpc::ControlLayout,
 }
 
 impl DeviceProfile {
@@ -94,6 +100,8 @@ pub const HX_STOMP: DeviceProfile = DeviceProfile {
     switches: 5,
     device_id: 0x0021_0006,
     snapshot_colours: false,
+    dsp_budget: None,
+    controls: rpc::ControlLayout::Stomp,
 };
 pub const HX_STOMP_XL: DeviceProfile = DeviceProfile {
     product_id: 0x4253,
@@ -103,15 +111,26 @@ pub const HX_STOMP_XL: DeviceProfile = DeviceProfile {
     switches: 8,
     device_id: 0x0021_000B,
     snapshot_colours: false,
+    dsp_budget: None,
+    controls: rpc::ControlLayout::Stomp,
 };
 pub const HELIX_FLOOR: DeviceProfile = DeviceProfile {
     product_id: 0x4248,
     name: "Helix Floor",
     presets: 128,
-    presets_per_bank: 3,
-    switches: 10,
+    // 32 banks of A to D, confirmed on a Floor: its fourth preset is 01D.
+    presets_per_bank: 4,
+    // FS1 to FS11 take assignments, as its own menu lists them; FS12 is
+    // Tap/Tuner. The pedal's own footswitch numbers address them, so
+    // switch 9 is the second on the lower row.
+    switches: 11,
     device_id: 0x0021_0001,
     snapshot_colours: true,
+    // 75 per path, measured at firmware 3.80 by placing blocks until the
+    // pedal refused one: 68 + 7.00 fits and 68 + 7.01 does not, on either
+    // path. The Rack and LT are likely the same, but nobody has measured.
+    dsp_budget: Some(7500),
+    controls: rpc::ControlLayout::Helix,
 };
 pub const HELIX_RACK: DeviceProfile = DeviceProfile {
     product_id: 0x4249,
@@ -121,6 +140,8 @@ pub const HELIX_RACK: DeviceProfile = DeviceProfile {
     switches: 10,
     device_id: 0x0021_0002,
     snapshot_colours: false,
+    dsp_budget: None,
+    controls: rpc::ControlLayout::Stomp,
 };
 pub const HELIX_LT: DeviceProfile = DeviceProfile {
     product_id: 0x424A,
@@ -130,6 +151,8 @@ pub const HELIX_LT: DeviceProfile = DeviceProfile {
     switches: 10,
     device_id: 0x0021_0004,
     snapshot_colours: false,
+    dsp_budget: None,
+    controls: rpc::ControlLayout::Stomp,
 };
 pub const HX_EFFECTS: DeviceProfile = DeviceProfile {
     product_id: 0x4245,
@@ -139,6 +162,8 @@ pub const HX_EFFECTS: DeviceProfile = DeviceProfile {
     switches: 6,
     device_id: 0x0021_0005,
     snapshot_colours: false,
+    dsp_budget: None,
+    controls: rpc::ControlLayout::Stomp,
 };
 
 /// Every device profile we recognise.
@@ -179,10 +204,25 @@ mod tests {
     }
 
     #[test]
+    fn a_helix_floor_has_eleven_assignable_footswitches() {
+        assert_eq!(HELIX_FLOOR.switches, 11);
+        assert_eq!(HELIX_FLOOR.controls, rpc::ControlLayout::Helix);
+    }
+
+    #[test]
     fn hx_effects_uses_four_presets_per_bank() {
         assert_eq!(HX_EFFECTS.slot_label(3), "01D");
         assert_eq!(HX_EFFECTS.slot_label(104), "27A");
         assert_eq!(HX_EFFECTS.parse_slot("27A"), Some(104));
         assert_eq!(HX_EFFECTS.parse_slot("01D"), Some(3));
+    }
+
+    #[test]
+    fn helix_floor_uses_four_presets_per_bank() {
+        assert_eq!(HELIX_FLOOR.slot_label(3), "01D");
+        assert_eq!(HELIX_FLOOR.slot_label(4), "02A");
+        assert_eq!(HELIX_FLOOR.slot_label(127), "32D");
+        assert_eq!(HELIX_FLOOR.parse_slot("01D"), Some(3));
+        assert_eq!(HELIX_FLOOR.parse_slot("32D"), Some(127));
     }
 }

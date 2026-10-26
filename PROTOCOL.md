@@ -141,6 +141,15 @@ untouched, three minutes of `watch`: 195 notifications and then silence before
 (195 ticks of 21 bytes is 4095 bytes), 1095 and still flowing after. The device
 tests do not cover this; `fake::Pedal::events_window` models it.
 
+**Idle channels need keep-alives during long reads. [confirmed]** A Helix Floor
+(3.80) probes a channel that has carried no traffic with keep-alive frames
+(type 0x10) at growing intervals. After four that the host leaves unanswered, it
+stops answering that channel. A whole-pedal backup spends about a minute on the
+data channel alone, so the control channel went quiet and the IR list that
+follows the presets and settings timed out. Sending a keep-alive at most once a
+second during the backup's read loops, as the editor's poll loop already does,
+lets it finish: 231 presets in 8 setlists, 169 settings and 7 IRs in 24.5 s.
+
 Two things that look like fixes and are not:
 
 - **Acknowledging the channel a reply just arrived on, before returning.** The
@@ -312,6 +321,60 @@ None**, 1–2 the expression pedals, 3–7 the footswitches, 8 MIDI CC, 9 Snapsh
 An HX Effects has six footswitches and its stored presets use ordinal **10** as
 well; from the data it looks like 3–8 footswitches, 9 MIDI CC and 10 Snapshots
 there, but that is not confirmed (#9).
+
+A Helix Floor (3.80) numbers its sources differently, and HX Edit's `.hlx`
+`@controller` is the same ordinal as the document's, which made the table
+readable from one Floor's 231 presets and its HX Edit backup (#28). Its
+controller table has 20 entries. **1 and 2 are EXP 1 and EXP 2** (both drive
+wah and volume `Pedal` parameters) and **19 is Snapshots** (parameters with no
+footswitch fields that change per snapshot). **Footswitches are their number
+plus 5**: Line 6's template preset labels 7–10 "Please / Use Snaps / w/ Manual /
+Return" and 13–16 "Tap Once / Then Use / Snapshot / View", and in stomp mode the
+Floor shows "Please" on FS2 and "Tap Once" on FS8 (FS1–FS6 is the top row, FS7–FS12
+the bottom). So FS1–FS12 are 6–17, and the ones not seen (6, 11, 12, 17) are the
+switches the Floor reserves by default: Bank up, Mode, Bank down and Tap.
+The front panel's controller menu lists the sources in ordinal order and
+fills in the rest: None, EXP Pedal 1–3, Variax Vol, Variax Tone, Footswitch
+1–11, MIDI CC, Snapshots. That is 19 choices for 20 ordinals, and Snapshots is
+19, so the one left out is 17, FS12 (Tap/Tuner), which takes no controller:
+
+| Ordinal | Source |
+|---|---|
+| 0 | None |
+| 1–3 | EXP Pedal 1–3 |
+| 4, 5 | Variax Vol, Variax Tone |
+| 6–16 | Footswitch 1–11 |
+| 17 | FS12, not offered |
+| 18 | MIDI CC |
+| 19 | Snapshots |
+
+1, 2, 7–10, 13–16 and 19 are confirmed by presets. 3, 4, 12 and 18 are confirmed
+on the hardware: assignments TonePush made to EXP 3, Variax Vol, Variax Tone
+and FS7 show on the Floor's own controller pages under those names, and a MIDI
+CC assignment made on the Floor's front panel is stored under 18. That covers 5
+as well, so every source the Floor offers is confirmed.
+
+**An assignment's target carries a flag at key 41.** The Floor's own Mic to EXP 3
+assignment on a cab is stored as `6: {28: 0, 29: 0, 41: true}`, travel 0 to 15;
+the cab's first ordinary parameter, Distance, is `{28: 0, 29: 0, 41: false}`. So
+`29: 0` alone does not say which parameter: with 41 set it is the cab's Mic. The
+parser ignores 41 and reads that assignment as Distance, and opcode 37 always
+sends its key 129 as false, which is probably the same switch. Seen on a Floor;
+an HX Stomp cab presumably stores its Mic the same way.
+
+Per-switch settings (name, light, latching, and what a switch turns on and off)
+are addressed by the Floor's own footswitch number, as on the Stomp: reading
+switch 9 of a preset returned the name the pedal shows on the second switch of
+the lower row, and switch 11 the one on the fourth. Switches 6 and 12, Mode and
+Tap by default, read back empty. A block's bypass on a footswitch shows up in
+that switch's list rather than in the controller table, which is why no Floor
+preset had a bypass entry there. Writing them works the same way: a name, a red
+light and momentary set on FS4, and blocks' bypasses put on FS4 and FS11, all
+read back as written, survived a save and showed and behaved so on the pedal. A Variax model
+switched per snapshot is an assignment with neither a bypass (key 9) nor a
+parameter target (key 6): `{5: 0, 8: 45}`, shown by HX Edit as
+`variax/@variax_model`. The parser accepts these; naming them, and writing
+assignments with the Floor's ordinals, is not done yet.
 Key **71 is not the constant it looks like**: it is the assignment's on switch,
 `4` when one is made and `0` when it is removed, and removing sends `{74: 0,
 71: 0}` rather than a separate opcode.
@@ -366,6 +429,17 @@ parameter 0. `CT-Master Lead` has one assignment, on parameter 1:
 ```
 
 Its ends read 1 and 4, in that parameter's own units.
+
+**Key 41 inside key 6 says the index is a model setting, not a parameter.
+[confirmed]** A cab's Mic is one of the model's own settings (HX Edit's `@mic`,
+0 to 15), kept apart from its parameters. A Mic assigned on a Helix Floor reads
+`6: {28: 0, 29: 0, 41: true}`; the same cab's Distance, its first parameter, is
+`{28: 0, 29: 0, 41: false}`. Read by index alone, the Mic's assignment showed up
+on Distance. The parser now reads it as the Mic and leaves any other flagged
+index out. How the request that makes an assignment names a setting is not
+known: sending key 129 as true with index 0 put the assignment on Distance, as
+false does. So the editor shows a Mic assignment but does not change it; a
+capture of HX Edit assigning a Mic would settle it.
 
 **Key 5 is the block; the entry's own key 0 is not. [confirmed]** Key 0 is the
 assignment's place in that controller's table, and it equals the block often
@@ -814,7 +888,8 @@ observed:
 HX Edit's own traffic contains only 0 and 1, which is why the refusals stayed
 unmapped until deliberately bad requests were sent. Codes observed so far: `-3`
 a bad block or parameter reference, `-46` an out-of-range snapshot, `-302` an
-unknown model number. Two sharp edges: **accepted is not validated** - selecting
+unknown model number, `-306` no DSP left on the path for that block (see
+"What fits on a path" below). Two sharp edges: **accepted is not validated** - selecting
 preset 999 on a 126-preset device answers 1 and simply does nothing - and a
 no-op is not an error: clearing an already-empty IR slot answers 0.
 
@@ -1029,6 +1104,56 @@ derived structure:
  A   0 Input [Multi (Guitar, Aux, Variax)]  ->   1 Cali Q Graphic  ->  …  ->   9 Output [Multi (1/4", XLR, …)]
  B  10 Split Y  ->  13 Line 6 2204 Mod  ->  19 Mixer
 ```
+
+### What fits on a path [confirmed on a Helix Floor]
+
+Each path is one DSP, with a fixed budget in the units HX Edit's `.models`
+files list as `load`. Placing a block past it is refused with `-306`, and those
+are the models the pedal greys out on its own screen. Measured on a Helix
+Floor at firmware 3.80 by placing models into an empty preset until one was
+refused:
+
+- Each path holds **75.0**, and the limit itself fits: with 68 placed, a block
+  of 7.00 goes in and one of 7.01 is refused. Path 1 and path 2 are the same
+  and independent, both lanes of a split share their path's budget, and the
+  path's input setting makes no difference. Bypassed blocks count.
+- A block costs the load of the **exact number placed**. Mono and stereo
+  variants are separate numbers (`HD2_DelayVintageDigitalMono`,
+  `...Stereo`): the mono one costs `load`, the stereo one `load_stereo`. With
+  6.65 left, the mono Vintage Digital (3.93) went in and the stereo one (7.14)
+  was refused.
+- An Amp+Cab costs the amp and the cab together. A path holding 53.05 took a
+  pair costing 21.76 and refused one costing 22.5.
+- The IR blocks cost their `load_320`, 2.5, not the 7 (1024) or 13 (2048)
+  listed as `load`: both went in with 2.55 left and were refused with 2.40.
+- A split and its join cost at most 0.05 together, not the 1.5 listed.
+
+The HX Stomp's budget has not been measured. Helix LT and Rack are likely the
+same as the Floor, but neither has been tried.
+
+One refusal wedged the Floor: a whole-document write sent straight after a
+`-306` left it on "writing, please wait" until a power cycle. Waiting about
+five seconds and reading the preset back first was safe every time.
+
+### A block is named by its slot outside the slot array too [confirmed]
+
+Three other places name a block by its flattened slot number, counted across
+both paths:
+
+- a controller assignment, at key 5 inside key 1 of its entry in the table at
+  top-level key 4;
+- a footswitch, at key 8 inside key 11 of its entry in the table at top-level
+  key 3, key 8, indexed by switch ordinal like key 4. Entries whose key 11 has
+  kind 1 or 2 at key 0 carry it; kind 3 entries name no block;
+- each snapshot's per-slot states at key 3, one entry per slot.
+
+Moving a block in the document therefore means moving these with it. Seen on a
+Helix Floor, firmware 3.80: a Volume Pedal slid from slot 28 to 24 by a document
+write left Expression Pedal 2 and a footswitch on the empty slot 28. The pedal
+accepted the write and saved the preset. It dropped the footswitch entry, and
+it wrote the first snapshot's value for that assignment as an array header
+promising three values with only two after it, so the saved preset no longer
+decodes.
 
 ### A `.hlx` numbers cells along a row, not slots [confirmed]
 

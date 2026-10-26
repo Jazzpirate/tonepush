@@ -201,6 +201,8 @@ impl Watch {
 pub(crate) enum Search {
     Looking,
     NotFound,
+    /// Listed on USB, but opening it failed.
+    Failed,
 }
 
 impl App {
@@ -275,8 +277,13 @@ impl App {
         } else {
             Search::NotFound
         };
+        // A StompStation PRO that was found but would not open says why on
+        // its card: "Not found" there sent people looking at the cable.
+        let pro_failure = self.pro.connect_failure().map(str::to_owned);
         let pro = if self.pro.looking() {
             Search::Looking
+        } else if pro_failure.is_some() {
+            Search::Failed
         } else {
             Search::NotFound
         };
@@ -384,7 +391,7 @@ impl App {
                                             pro,
                                         );
                                     });
-                                    if hx == Search::NotFound && pro == Search::NotFound {
+                                    if hx != Search::Looking && pro != Search::Looking {
                                         ui.add_space(12.0);
                                         ui.horizontal(|ui| {
                                             look = theme::Button::new("Look again")
@@ -415,6 +422,15 @@ impl App {
                                     ui.add_space(if compact { 12.0 } else { 18.0 });
 
                                     // What is fine, what to do, and the step for HX pedals.
+                                    if let Some(reason) = &pro_failure {
+                                        check(
+                                            ui,
+                                            Icon::CircleAlert,
+                                            theme::hot(),
+                                            "The StompStation PRO is plugged in, but would not open",
+                                            reason,
+                                        );
+                                    }
                                     if let Some(access) = usb_access() {
                                         if access {
                                             check(
@@ -643,6 +659,7 @@ fn family(ui: &mut Ui, width: f32, art: f32, which: Family, search: Search) {
                     let words = match search {
                         Search::Looking => "Looking on USB",
                         Search::NotFound => "Not found",
+                        Search::Failed => "Found, could not connect",
                     };
                     let galley = shell::galley(ui, words, theme::regular(12.0), theme::text_soft());
                     let total = 14.0 + 7.0 + galley.size().x;
@@ -656,6 +673,13 @@ fn family(ui: &mut Ui, width: f32, art: f32, which: Family, search: Search) {
                             spot.center(),
                             13.0,
                             theme::muted(),
+                        ),
+                        Search::Failed => theme::paint_icon(
+                            ui,
+                            Icon::CircleAlert,
+                            spot.center(),
+                            13.0,
+                            theme::hot(),
                         ),
                     }
                     ui.add_space(7.0);
