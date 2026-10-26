@@ -68,6 +68,10 @@ pub struct DeviceProfile {
     /// Family and member ids, as reported by a MIDI identity request and stored
     /// in `.hlx` files - HX Stomp is `0x00210006`.
     pub device_id: u32,
+    /// Whether its snapshots light in a colour of their own that TonePush may
+    /// change. Every device's presets carry the field, but only a Helix Floor
+    /// has been seen to show it.
+    pub snapshot_colours: bool,
     /// What each path's DSP holds, in hundredths of HX Edit's load units, so
     /// that adding up block costs is exact. `None` where it was never
     /// measured: nothing is held back from such a device.
@@ -95,6 +99,7 @@ pub const HX_STOMP: DeviceProfile = DeviceProfile {
     presets_per_bank: 3,
     switches: 5,
     device_id: 0x0021_0006,
+    snapshot_colours: false,
     dsp_budget: None,
     controls: rpc::ControlLayout::Stomp,
 };
@@ -105,6 +110,7 @@ pub const HX_STOMP_XL: DeviceProfile = DeviceProfile {
     presets_per_bank: 3,
     switches: 8,
     device_id: 0x0021_000B,
+    snapshot_colours: false,
     dsp_budget: None,
     controls: rpc::ControlLayout::Stomp,
 };
@@ -119,6 +125,7 @@ pub const HELIX_FLOOR: DeviceProfile = DeviceProfile {
     // switch 9 is the second on the lower row.
     switches: 11,
     device_id: 0x0021_0001,
+    snapshot_colours: true,
     // 75 per path, measured at firmware 3.80 by placing blocks until the
     // pedal refused one: 68 + 7.00 fits and 68 + 7.01 does not, on either
     // path. The Rack and LT are likely the same, but nobody has measured.
@@ -132,6 +139,7 @@ pub const HELIX_RACK: DeviceProfile = DeviceProfile {
     presets_per_bank: 3,
     switches: 10,
     device_id: 0x0021_0002,
+    snapshot_colours: false,
     dsp_budget: None,
     controls: rpc::ControlLayout::Stomp,
 };
@@ -142,6 +150,7 @@ pub const HELIX_LT: DeviceProfile = DeviceProfile {
     presets_per_bank: 3,
     switches: 10,
     device_id: 0x0021_0004,
+    snapshot_colours: false,
     dsp_budget: None,
     controls: rpc::ControlLayout::Stomp,
 };
@@ -152,6 +161,7 @@ pub const HX_EFFECTS: DeviceProfile = DeviceProfile {
     presets_per_bank: 4,
     switches: 6,
     device_id: 0x0021_0005,
+    snapshot_colours: false,
     dsp_budget: None,
     controls: rpc::ControlLayout::Stomp,
 };
