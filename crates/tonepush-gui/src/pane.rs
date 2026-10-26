@@ -39,11 +39,25 @@ impl Lens {
 /// not know how to send a change to it yet.
 const MIC_HINT: &str = "a cab's Mic is changed on the pedal";
 
+/// How to put something under a source that carries nothing yet, naming it
+/// the way the assignment menu lists it.
+pub(crate) fn assign_hint(source: Source, on_off: bool) -> String {
+    let what = if on_off {
+        "a knob or an on/off"
+    } else {
+        "a knob"
+    };
+    // Short enough that a footswitch board card still shows the whole name.
+    format!("Right-click {what}, choose {}", source.label())
+}
+
 /// What a tag says for a source, as the pedal prints it.
 pub(crate) fn source_tag(source: Source) -> String {
     match source {
         Source::Footswitch(n) => format!("FS{n}"),
         Source::Expression(n) => format!("EXP {n}"),
+        Source::VariaxVolume => "Variax Vol".to_owned(),
+        Source::VariaxTone => "Variax Tone".to_owned(),
         Source::MidiCc => "MIDI".to_owned(),
         Source::Snapshots => "Snapshots".to_owned(),
     }
@@ -2128,8 +2142,19 @@ impl App {
 
     /// Every source the Footswitches lens lists, in the pedal's order.
     pub(crate) fn listed_sources(&self) -> Vec<Source> {
-        let mut sources: Vec<Source> = (1..=self.switch_count()).map(Source::Footswitch).collect();
-        sources.extend([Source::Expression(1), Source::Expression(2), Source::MidiCc]);
+        let controls = self.controls();
+        let mut sources: Vec<Source> = controls
+            .sources()
+            .into_iter()
+            .filter(|source| matches!(source, Source::Footswitch(_)))
+            .filter(|source| self.offers_switch(*source))
+            .collect();
+        sources.extend(controls.sources().into_iter().filter(|source| {
+            matches!(
+                source,
+                Source::Expression(_) | Source::VariaxVolume | Source::VariaxTone | Source::MidiCc
+            )
+        }));
         sources
     }
 
@@ -2201,6 +2226,7 @@ impl App {
             }
             Source::Expression(n) if self.carried_by(source).is_empty() => format!("EXP {n}"),
             Source::Expression(n) => format!("EXP {n} · heel to toe"),
+            Source::VariaxVolume | Source::VariaxTone => source_tag(source),
             Source::MidiCc => "MIDI".to_owned(),
             Source::Snapshots => "Snapshots".to_owned(),
         }
@@ -2251,6 +2277,7 @@ impl App {
                 .iter()
                 .any(|a| Self::auto_engage(a.source, a.target))
                 .then(|| "Auto on".to_owned()),
+            Source::VariaxVolume | Source::VariaxTone => None,
             Source::MidiCc => (!carried.is_empty()).then(|| "CC".to_owned()),
             Source::Snapshots => None,
         }
@@ -2460,20 +2487,14 @@ impl App {
                         Pos2::new(x, rect.top()),
                         Pos2::new(limit, rect.bottom()),
                     ))
-                    .id_salt(("source-mode", source.ordinal()))
+                    .id_salt(("source-mode", source))
                     .layout(egui::Layout::right_to_left(egui::Align::Center)),
             );
             theme::Chip::new(&mode).show(&mut child);
             limit = child.min_rect().left() - 10.0;
         }
         if empty {
-            let hint = match source {
-                Source::Footswitch(n) => {
-                    format!("Right-click a knob or an on/off and choose FS{n}")
-                }
-                Source::Expression(n) => format!("Right-click a knob and choose EXP {n}"),
-                _ => "Right-click a knob and choose MIDI".to_owned(),
-            };
+            let hint = assign_hint(source, matches!(source, Source::Footswitch(_)));
             let hint = shell::elided(
                 ui,
                 hint,
@@ -2561,6 +2582,7 @@ impl App {
             let what = match source {
                 Source::Footswitch(_) => "what your foot does",
                 Source::Expression(_) => "what the pedal sweeps",
+                Source::VariaxVolume | Source::VariaxTone => "what the guitar's knob turns",
                 Source::MidiCc => "what a controller sends",
                 Source::Snapshots => "",
             };
@@ -2823,6 +2845,7 @@ impl App {
             let words = match a.source {
                 Source::Footswitch(_) => ("switch off", "switch on"),
                 Source::Expression(_) => ("heel", "toe"),
+                Source::VariaxVolume | Source::VariaxTone => ("knob at 0", "knob at 10"),
                 Source::MidiCc => ("CC at 0", "CC at 127"),
                 Source::Snapshots => ("lowest", "highest"),
             };
@@ -3102,6 +3125,10 @@ impl App {
         pick
     }
 
+    fn snapshot_column_width(&self, width: f32, column: f32) -> f32 {
+        snapshot_column_width(self.snapshots.len(), width, column)
+    }
+
     /// The highlight down the column of the snapshot on the pedal.
     fn snapshot_column(&self, ui: &Ui, row: Rect, column: f32) {
         let label_width = row.width() - column * self.snapshots.len() as f32;
@@ -3128,6 +3155,7 @@ impl App {
             shell::paint_line(ui, words, row.left() + 14.0, row.center().y);
             return;
         }
+        let column = self.snapshot_column_width(ui.available_width(), column);
         let pick = self.snapshot_head(ui, column, "matrix");
         let width = ui.available_width();
         let label_width = width - column * self.snapshots.len() as f32;
@@ -3350,6 +3378,7 @@ impl App {
         if self.snapshots.is_empty() {
             return;
         }
+        let column = self.snapshot_column_width(ui.available_width(), column);
         if let Some(index) = self.snapshot_head(ui, column, "values") {
             self.switch_snapshot(index);
         }
@@ -3581,22 +3610,27 @@ impl App {
             egui::Frame::new()
                 .inner_margin(egui::Margin::same(14))
                 .show(ui, |ui| {
-                    let columns = sources.len().max(1);
                     let gap = 12.0;
+                    let columns = board_columns(sources.len(), ui.available_width(), gap);
                     let width = ((ui.available_width() - gap * (columns as f32 - 1.0))
                         / columns as f32)
                         .floor();
-                    // One height for the row: the tallest card's.
+                    // One height for every row: the tallest card's.
                     let height = sources
                         .iter()
                         .map(|source| self.source_card_height(*source))
                         .fold(0.0, f32::max);
-                    ui.horizontal_top(|ui| {
-                        ui.spacing_mut().item_spacing.x = gap;
-                        for source in &sources {
-                            self.source_card(ui, *source, Vec2::new(width, height));
+                    for (row, cards) in sources.chunks(columns).enumerate() {
+                        if row > 0 {
+                            ui.add_space(gap);
                         }
-                    });
+                        ui.horizontal_top(|ui| {
+                            ui.spacing_mut().item_spacing.x = gap;
+                            for source in cards {
+                                self.source_card(ui, *source, Vec2::new(width, height));
+                            }
+                        });
+                    }
                 });
         });
         if open_midi {
@@ -3679,7 +3713,7 @@ impl App {
                         Pos2::new(left, switch.top()),
                         Pos2::new(right, switch.bottom()),
                     ))
-                    .id_salt(("card-mode", source.ordinal()))
+                    .id_salt(("card-mode", source))
                     .layout(egui::Layout::right_to_left(egui::Align::Center)),
             );
             theme::Chip::new(&mode).show(&mut child);
@@ -3703,11 +3737,7 @@ impl App {
         shell::paint_line(ui, second, left, switch.center().y + 9.0);
         let mut y = switch.bottom() + 5.0 + 10.0 + 11.0;
         if empty {
-            let hint = match source {
-                Source::Footswitch(n) => format!("Right-click a knob and choose FS{n}"),
-                Source::Expression(n) => format!("Right-click a knob and choose EXP {n}"),
-                _ => "Right-click a knob and choose MIDI".to_owned(),
-            };
+            let hint = assign_hint(source, false);
             let hint = shell::elided(
                 ui,
                 hint,
@@ -3827,9 +3857,76 @@ impl App {
     }
 }
 
+/// How many source cards share a row of the footswitch board: all of them
+/// when each still gets 160 points, as an HX Stomp's always do, and otherwise
+/// as many as do. A Helix Floor lists eleven footswitches, three pedals and two
+/// Variax knobs, and in one row their words ran into each other.
+fn board_columns(cards: usize, available: f32, gap: f32) -> usize {
+    const NARROWEST: f32 = 160.0;
+    let fit = ((available + gap) / (NARROWEST + gap)).floor().max(1.0) as usize;
+    cards.clamp(1, fit)
+}
+
+/// How wide each snapshot's column is: as asked, unless that many columns
+/// would leave the block names no room. A Helix has eight snapshots to an HX
+/// Stomp's three, and at the asked width they ran out of the panel to the
+/// left, over whatever was beside it.
+fn snapshot_column_width(count: usize, width: f32, column: f32) -> f32 {
+    const NAMES: f32 = 120.0;
+    const NARROWEST: f32 = 28.0;
+    column.min(((width - NAMES) / count.max(1) as f32).max(NARROWEST))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The hint names the menu item to pick, for every source a device lists:
+    /// a Variax knob used to read "choose MIDI".
+    #[test]
+    fn an_empty_source_says_which_menu_item_to_choose() {
+        assert_eq!(
+            assign_hint(Source::VariaxVolume, false),
+            "Right-click a knob, choose Variax Volume"
+        );
+        assert_eq!(
+            assign_hint(Source::Expression(3), false),
+            "Right-click a knob, choose Expression Pedal 3"
+        );
+        assert_eq!(
+            assign_hint(Source::Footswitch(7), true),
+            "Right-click a knob or an on/off, choose Footswitch 7"
+        );
+        assert_eq!(
+            assign_hint(Source::MidiCc, false),
+            "Right-click a knob, choose MIDI CC"
+        );
+    }
+
+    #[test]
+    fn a_crowded_footswitch_board_wraps_rather_than_squeezing() {
+        // An HX Stomp's cards keep one row.
+        assert_eq!(board_columns(5, 1200.0, 12.0), 5);
+        // A Helix Floor's sixteen in the same room wrap, seven to a row, each
+        // keeping its 160 points.
+        let columns = board_columns(16, 1200.0, 12.0);
+        assert_eq!(columns, 7);
+        let width = (1200.0 - 12.0 * (columns as f32 - 1.0)) / columns as f32;
+        assert!(width >= 160.0, "{width}");
+        // Never fewer than one, however narrow.
+        assert_eq!(board_columns(16, 50.0, 12.0), 1);
+        assert_eq!(board_columns(0, 1200.0, 12.0), 1);
+    }
+
+    #[test]
+    fn eight_snapshots_stay_inside_their_panel() {
+        // Three fit at the width asked for, as on an HX Stomp.
+        assert_eq!(snapshot_column_width(3, 600.0, 104.0), 104.0);
+        // Eight at that width would start 232 points left of the panel.
+        let column = snapshot_column_width(8, 600.0, 104.0);
+        assert_eq!(column, 60.0);
+        assert!(600.0 - 8.0 * column >= 120.0, "the block names keep room");
+    }
 
     #[test]
     fn a_face_never_leaves_one_straggler() {

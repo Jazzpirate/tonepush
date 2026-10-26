@@ -88,7 +88,8 @@ enum Scene {
     ProFirmwareRestart,
     /// A firmware update that stopped.
     ProFirmwareFailed,
-    /// Nothing found on USB, with the way to look again.
+    /// No HX pedal found, and a StompStation PRO found that would not
+    /// open, with the reason and the way to look again.
     ConnectNotFound,
     /// A StompStation PRO, a tempo it does not take just typed.
     ProTempoRefused,
@@ -845,7 +846,7 @@ impl Scene {
                 app.status =
                     "No supported pedal found. Check USB and close any other pedal editor."
                         .to_owned();
-                app.pro.demo_not_found();
+                app.pro.demo_connect_failed();
                 // Without HX Edit's data, as on a first run.
                 app.catalog = None;
             }
