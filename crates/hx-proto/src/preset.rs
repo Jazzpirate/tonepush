@@ -1372,6 +1372,7 @@ impl Preset {
         if !within.contains(&at) {
             return false;
         }
+        let within = self.segment(at, within);
         let Some(free) = (at..within.end).find(|p| {
             self.slots.get(*p).is_some_and(|s| {
                 s.model.is_none() && s.kind != Kind::Input && s.kind != Kind::Output
@@ -1432,7 +1433,7 @@ impl Preset {
             return Some(before);
         }
         let previous = previous?;
-        let empty = (bounds.start..previous)
+        let empty = (self.segment(previous, bounds.clone()).start..previous)
             .rev()
             .find(|slot| free(self, *slot))?;
         let (_, path, from) = slot_location(&self.tone, empty)?;
@@ -1449,6 +1450,38 @@ impl Preset {
         self.slots = collect_slots(&self.tone);
         self.follow_slots(|order| order[empty..=previous].rotate_left(1));
         Some(previous)
+    }
+
+    /// The stretch of `within` that `position` is in, between the attach points
+    /// of a divided path's split and join. On the main row, the blocks before
+    /// the split's attach point, those up to the join's and those after it are
+    /// the head, the upper branch and the tail, so a slide that carried a block
+    /// across one of those points would move it between them and rewire the
+    /// preset.
+    fn segment(&self, position: usize, within: std::ops::Range<usize>) -> std::ops::Range<usize> {
+        let cuts: Vec<usize> = self
+            .layout()
+            .paths
+            .iter()
+            .filter(|path| !path.lanes.is_empty())
+            .flat_map(|path| [path.split, path.join])
+            .flatten()
+            .filter_map(|junction| self.attach_of(junction))
+            .filter(|at| *at > within.start && *at < within.end)
+            .collect();
+        let start = cuts
+            .iter()
+            .copied()
+            .filter(|cut| *cut <= position)
+            .max()
+            .unwrap_or(within.start);
+        let end = cuts
+            .iter()
+            .copied()
+            .filter(|cut| *cut > position)
+            .min()
+            .unwrap_or(within.end);
+        start..end
     }
 
     /// The slot range a lane occupies, for bounding [`make_room`].
@@ -3278,6 +3311,66 @@ mod tests {
         let (mut preset, bounds) = lane_with(&[0, 1, 2, 3, 4, 5, 6, 7]);
         assert_eq!(preset.room_before(bounds.start + 3), None);
         assert_eq!(preset.room_before(bounds.end), None);
+    }
+
+    /// The head, upper branch and tail of a split row, as `layout()` reads
+    /// them.
+    fn sections(preset: &Preset) -> (Vec<usize>, Vec<usize>, Vec<usize>) {
+        let path = &preset.layout().paths[0];
+        (
+            path.head.clone(),
+            path.lanes[0].blocks.clone(),
+            path.tail.clone(),
+        )
+    }
+
+    /// With no room left on the upper branch, adding after its last block
+    /// slid a branch block back over the split's attach point into the head.
+    #[test]
+    fn a_slide_back_stops_at_the_split() {
+        // Slot 1 free in the head, slot 2 a block there; the split attaches
+        // before 3, so 3 and 4 are the upper branch.
+        let mut preset = shaped_at(
+            &[IN, EMPTY, BLOCK, BLOCK, BLOCK, OUT, SPLIT, BLOCK, JOIN],
+            3,
+            usize::MAX,
+        );
+        assert_eq!(sections(&preset), (vec![2], vec![3, 4], vec![]));
+        let before = preset.encode();
+        assert_eq!(preset.room_before(5), None, "the branch is full");
+        assert_eq!(preset.encode(), before, "nothing moved");
+    }
+
+    /// Room on the branch itself is used, and the head stays as it was.
+    #[test]
+    fn a_slide_back_within_the_branch_still_makes_room() {
+        let mut preset = shaped_at(
+            &[
+                IN, BLOCK, BLOCK, EMPTY, BLOCK, BLOCK, OUT, SPLIT, BLOCK, JOIN,
+            ],
+            3,
+            usize::MAX,
+        );
+        assert_eq!(sections(&preset), (vec![1, 2], vec![4, 5], vec![]));
+        assert_eq!(preset.room_before(6), Some(5));
+        assert_eq!(sections(&preset), (vec![1, 2], vec![3, 4], vec![]));
+    }
+
+    /// Sliding the branch along to free its first slot used to push its last
+    /// block over the join's attach point into the tail.
+    #[test]
+    fn a_slide_along_stops_at_the_join() {
+        // The split attaches before 2 and the join before 4: 2 and 3 are the
+        // upper branch, and 4 is a free slot in the tail.
+        let mut preset = shaped_at(
+            &[IN, BLOCK, BLOCK, BLOCK, EMPTY, OUT, SPLIT, BLOCK, JOIN],
+            2,
+            4,
+        );
+        assert_eq!(sections(&preset), (vec![1], vec![2, 3], vec![]));
+        let before = preset.encode();
+        assert_eq!(preset.room_before(2), None, "the branch is full");
+        assert_eq!(preset.encode(), before, "nothing moved");
     }
 
     /// A full lane has nowhere to slide, and must say so rather than pushing a
