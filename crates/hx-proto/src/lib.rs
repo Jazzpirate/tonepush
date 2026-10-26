@@ -68,6 +68,10 @@ pub struct DeviceProfile {
     /// Family and member ids, as reported by a MIDI identity request and stored
     /// in `.hlx` files - HX Stomp is `0x00210006`.
     pub device_id: u32,
+    /// What each path's DSP holds, in hundredths of HX Edit's load units, so
+    /// that adding up block costs is exact. `None` where it was never
+    /// measured: nothing is held back from such a device.
+    pub dsp_budget: Option<u32>,
     /// How the device numbers what can drive a parameter.
     pub controls: rpc::ControlLayout,
 }
@@ -91,6 +95,7 @@ pub const HX_STOMP: DeviceProfile = DeviceProfile {
     presets_per_bank: 3,
     switches: 5,
     device_id: 0x0021_0006,
+    dsp_budget: None,
     controls: rpc::ControlLayout::Stomp,
 };
 pub const HX_STOMP_XL: DeviceProfile = DeviceProfile {
@@ -100,6 +105,7 @@ pub const HX_STOMP_XL: DeviceProfile = DeviceProfile {
     presets_per_bank: 3,
     switches: 8,
     device_id: 0x0021_000B,
+    dsp_budget: None,
     controls: rpc::ControlLayout::Stomp,
 };
 pub const HELIX_FLOOR: DeviceProfile = DeviceProfile {
@@ -113,6 +119,10 @@ pub const HELIX_FLOOR: DeviceProfile = DeviceProfile {
     // switch 9 is the second on the lower row.
     switches: 11,
     device_id: 0x0021_0001,
+    // 75 per path, measured at firmware 3.80 by placing blocks until the
+    // pedal refused one: 68 + 7.00 fits and 68 + 7.01 does not, on either
+    // path. The Rack and LT are likely the same, but nobody has measured.
+    dsp_budget: Some(7500),
     controls: rpc::ControlLayout::Helix,
 };
 pub const HELIX_RACK: DeviceProfile = DeviceProfile {
@@ -122,6 +132,7 @@ pub const HELIX_RACK: DeviceProfile = DeviceProfile {
     presets_per_bank: 3,
     switches: 10,
     device_id: 0x0021_0002,
+    dsp_budget: None,
     controls: rpc::ControlLayout::Stomp,
 };
 pub const HELIX_LT: DeviceProfile = DeviceProfile {
@@ -131,6 +142,7 @@ pub const HELIX_LT: DeviceProfile = DeviceProfile {
     presets_per_bank: 3,
     switches: 10,
     device_id: 0x0021_0004,
+    dsp_budget: None,
     controls: rpc::ControlLayout::Stomp,
 };
 pub const HX_EFFECTS: DeviceProfile = DeviceProfile {
@@ -140,6 +152,7 @@ pub const HX_EFFECTS: DeviceProfile = DeviceProfile {
     presets_per_bank: 4,
     switches: 6,
     device_id: 0x0021_0005,
+    dsp_budget: None,
     controls: rpc::ControlLayout::Stomp,
 };
 
