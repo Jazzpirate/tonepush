@@ -3109,6 +3109,10 @@ impl App {
         pick
     }
 
+    fn snapshot_column_width(&self, width: f32, column: f32) -> f32 {
+        snapshot_column_width(self.snapshots.len(), width, column)
+    }
+
     /// The highlight down the column of the snapshot on the pedal.
     fn snapshot_column(&self, ui: &Ui, row: Rect, column: f32) {
         let label_width = row.width() - column * self.snapshots.len() as f32;
@@ -3135,6 +3139,7 @@ impl App {
             shell::paint_line(ui, words, row.left() + 14.0, row.center().y);
             return;
         }
+        let column = self.snapshot_column_width(ui.available_width(), column);
         let pick = self.snapshot_head(ui, column, "matrix");
         let width = ui.available_width();
         let label_width = width - column * self.snapshots.len() as f32;
@@ -3357,6 +3362,7 @@ impl App {
         if self.snapshots.is_empty() {
             return;
         }
+        let column = self.snapshot_column_width(ui.available_width(), column);
         if let Some(index) = self.snapshot_head(ui, column, "values") {
             self.switch_snapshot(index);
         }
@@ -3845,6 +3851,16 @@ fn board_columns(cards: usize, available: f32, gap: f32) -> usize {
     cards.clamp(1, fit)
 }
 
+/// How wide each snapshot's column is: as asked, unless that many columns
+/// would leave the block names no room. A Helix has eight snapshots to an HX
+/// Stomp's three, and at the asked width they ran out of the panel to the
+/// left, over whatever was beside it.
+fn snapshot_column_width(count: usize, width: f32, column: f32) -> f32 {
+    const NAMES: f32 = 120.0;
+    const NARROWEST: f32 = 28.0;
+    column.min(((width - NAMES) / count.max(1) as f32).max(NARROWEST))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3884,6 +3900,16 @@ mod tests {
         // Never fewer than one, however narrow.
         assert_eq!(board_columns(16, 50.0, 12.0), 1);
         assert_eq!(board_columns(0, 1200.0, 12.0), 1);
+    }
+
+    #[test]
+    fn eight_snapshots_stay_inside_their_panel() {
+        // Three fit at the width asked for, as on an HX Stomp.
+        assert_eq!(snapshot_column_width(3, 600.0, 104.0), 104.0);
+        // Eight at that width would start 232 points left of the panel.
+        let column = snapshot_column_width(8, 600.0, 104.0);
+        assert_eq!(column, 60.0);
+        assert!(600.0 - 8.0 * column >= 120.0, "the block names keep room");
     }
 
     #[test]

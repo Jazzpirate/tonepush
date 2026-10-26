@@ -62,3 +62,10 @@ instructions: |
   not establish an answer, stay silent rather than posting that the docs do not
   cover it. For feature requests, check relevant documentation for existing
   support before leaving product decisions to the maintainer.
+
+  For pull requests: a newly supported device does not need a read-only
+  gate when the PR shows write tests on that hardware. A change to session
+  or transport behaviour belongs in the affected device's profile, so the
+  other devices keep theirs. Controller sources go through the device's own
+  table; flag code that hardcodes HX Stomp source ordinals. Replies to
+  reporters are two or three plain sentences, without bulleted lists.

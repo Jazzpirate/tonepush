@@ -141,6 +141,15 @@ untouched, three minutes of `watch`: 195 notifications and then silence before
 (195 ticks of 21 bytes is 4095 bytes), 1095 and still flowing after. The device
 tests do not cover this; `fake::Pedal::events_window` models it.
 
+**Idle channels need keep-alives during long reads. [confirmed]** A Helix Floor
+(3.80) probes a channel that has carried no traffic with keep-alive frames
+(type 0x10) at growing intervals. After four that the host leaves unanswered, it
+stops answering that channel. A whole-pedal backup spends about a minute on the
+data channel alone, so the control channel went quiet and the IR list that
+follows the presets and settings timed out. Sending a keep-alive at most once a
+second during the backup's read loops, as the editor's poll loop already does,
+lets it finish: 231 presets in 8 setlists, 169 settings and 7 IRs in 24.5 s.
+
 Two things that look like fixes and are not:
 
 - **Acknowledging the channel a reply just arrived on, before returning.** The
@@ -1068,6 +1077,26 @@ derived structure:
  A   0 Input [Multi (Guitar, Aux, Variax)]  ->   1 Cali Q Graphic  ->  …  ->   9 Output [Multi (1/4", XLR, …)]
  B  10 Split Y  ->  13 Line 6 2204 Mod  ->  19 Mixer
 ```
+
+### A block is named by its slot outside the slot array too [confirmed]
+
+Three other places name a block by its flattened slot number, counted across
+both paths:
+
+- a controller assignment, at key 5 inside key 1 of its entry in the table at
+  top-level key 4;
+- a footswitch, at key 8 inside key 11 of its entry in the table at top-level
+  key 3, key 8, indexed by switch ordinal like key 4. Entries whose key 11 has
+  kind 1 or 2 at key 0 carry it; kind 3 entries name no block;
+- each snapshot's per-slot states at key 3, one entry per slot.
+
+Moving a block in the document therefore means moving these with it. Seen on a
+Helix Floor, firmware 3.80: a Volume Pedal slid from slot 28 to 24 by a document
+write left Expression Pedal 2 and a footswitch on the empty slot 28. The pedal
+accepted the write and saved the preset. It dropped the footswitch entry, and
+it wrote the first snapshot's value for that assignment as an array header
+promising three values with only two after it, so the saved preset no longer
+decodes.
 
 ### A `.hlx` numbers cells along a row, not slots [confirmed]
 

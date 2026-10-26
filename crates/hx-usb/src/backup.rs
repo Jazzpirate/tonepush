@@ -357,10 +357,14 @@ fn capture_into(
     let all_names = (0..setlists.len().max(1))
         .map(|setlist| session.presets(setlist as i64))
         .collect::<Result<Vec<_>>>()?;
+    let mut alive = KeepAlive::new();
     let (names, more_setlists) = capture_presets(
         dir,
         all_names,
-        |setlist, index| session.read_preset_at(setlist as i64, index as i64),
+        |setlist, index| {
+            alive.tick(session)?;
+            session.read_preset_at(setlist as i64, index as i64)
+        },
         progress,
     )?;
 
@@ -369,6 +373,7 @@ fn capture_into(
     progress(Step::Globals);
     let mut globals = BTreeMap::new();
     for id in 0..GLOBAL_IDS {
+        alive.tick(session)?;
         let value = match session.object(id) {
             Ok(value) => value,
             // Unsupported ids are expected in this deliberately broad sweep.
@@ -443,6 +448,35 @@ fn capture_into(
 ///
 /// Presets, byte for byte. An empty slot is recorded as an empty name and no
 /// file, which is what tells a restore to blank it rather than skip it.
+/// Keeps the channels a long read is not using from being dropped.
+///
+/// Reading a whole pedal is a minute of requests on the data channel alone. A
+/// Helix Floor (3.80) probes the idle control channel with keep-alives
+/// meanwhile, and after four unanswered ones stops answering it, so the IR
+/// list that comes after the presets and settings timed out. One keep-alive a
+/// second is what the editor's own poll loop sends while idle.
+struct KeepAlive {
+    last: std::time::Instant,
+}
+
+impl KeepAlive {
+    const EVERY: std::time::Duration = std::time::Duration::from_secs(1);
+
+    fn new() -> Self {
+        KeepAlive {
+            last: std::time::Instant::now(),
+        }
+    }
+
+    fn tick(&mut self, session: &mut Session) -> Result<()> {
+        if self.last.elapsed() >= Self::EVERY {
+            session.keepalive()?;
+            self.last = std::time::Instant::now();
+        }
+        Ok(())
+    }
+}
+
 fn capture_presets(
     dir: &Path,
     mut all_names: Vec<Vec<String>>,
@@ -855,7 +889,12 @@ fn remove_other_slot_files(dir: &Path, slot: usize, keep: Option<&OsStr>) -> Res
 /// learn what a pedal is holding without asking the pedal, which is what the
 /// editor needs to say whether a preset is in the library.
 pub fn slot_files(dir: &Path) -> BTreeMap<usize, PathBuf> {
-    let Ok(read) = std::fs::read_dir(dir.join("presets")) else {
+    setlist_slot_files(dir, 0)
+}
+
+/// [`slot_files`] for any setlist of the bundle, not only the first.
+pub fn setlist_slot_files(dir: &Path, setlist: usize) -> BTreeMap<usize, PathBuf> {
+    let Ok(read) = std::fs::read_dir(dir.join(setlist_dir(setlist))) else {
         return BTreeMap::new();
     };
     read.flatten()
@@ -1440,6 +1479,30 @@ mod tests {
         let made = snapshot(&bundle, "2026-10-01 120000", 3).unwrap().unwrap();
         assert!(made.join("presets-1/001 Wall.hxpreset").is_file());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A whole-pedal read keeps the idle channels alive, but no more than
+    /// once a second: hammering the endpoint wedges the device too.
+    #[test]
+    fn a_long_capture_keeps_the_idle_channels_alive_once_a_second() {
+        let pedal = crate::fake::Pedal::new();
+        let mut session = crate::fake::session(&pedal);
+        // Open the channels a backup uses.
+        session.preset_info().unwrap();
+        session.irs().unwrap();
+        let sent = || pedal.lock().unwrap().transfers_in;
+
+        let mut alive = KeepAlive::new();
+        let before = sent();
+        alive.tick(&mut session).unwrap();
+        assert_eq!(sent(), before, "nothing is due straight away");
+
+        alive.last -= KeepAlive::EVERY;
+        alive.tick(&mut session).unwrap();
+        let after = sent();
+        assert!(after > before, "a second on, the channels hear from us");
+        alive.tick(&mut session).unwrap();
+        assert_eq!(sent(), after, "and not again until the next second");
     }
 
     #[test]
